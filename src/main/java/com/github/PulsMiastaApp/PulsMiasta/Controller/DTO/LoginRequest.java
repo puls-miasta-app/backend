@@ -17,4 +17,5 @@ public record LoginRequest(
 
         @NotNull
         ClientType clientType
-) {}
+) {
+}

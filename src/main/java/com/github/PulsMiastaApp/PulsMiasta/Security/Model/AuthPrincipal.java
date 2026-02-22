@@ -37,6 +37,13 @@ public record AuthPrincipal(
     }
 
     // UserDetails — password not exposed through the principal
-    @Override public String getPassword() { return null; }
-    @Override public String getUsername() { return email; }
+    @Override
+    public String getPassword() {
+        return null;
+    }
+
+    @Override
+    public String getUsername() {
+        return email;
+    }
 }

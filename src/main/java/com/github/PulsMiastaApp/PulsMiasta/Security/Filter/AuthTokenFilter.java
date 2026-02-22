@@ -21,7 +21,7 @@ import java.util.Optional;
 @Component
 public class AuthTokenFilter extends OncePerRequestFilter {
 
-    public static final String SESSION_COOKIE_NAME     = "auth_token";
+    public static final String SESSION_COOKIE_NAME = "auth_token";
     public static final String REMEMBER_ME_COOKIE_NAME = "remember_me";
 
     private final TokenService tokenService;

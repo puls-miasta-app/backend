@@ -12,8 +12,8 @@ import java.util.UUID;
 @Service
 public class TokenService {
 
-    private static final String SESSION_PREFIX     = "session:";
-    private static final String REMEMBER_PREFIX    = "remember:";
+    private static final String SESSION_PREFIX = "session:";
+    private static final String REMEMBER_PREFIX = "remember:";
 
     private final RedisTemplate<String, Long> redisTemplate;
     private final Duration sessionTtl;

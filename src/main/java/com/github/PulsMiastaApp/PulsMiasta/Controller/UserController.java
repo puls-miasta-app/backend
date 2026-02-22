@@ -34,6 +34,8 @@ public class UserController {
 
     @Schema(name = "MeSuccessResponse")
     private static class MeSuccessResponse extends SuccessResponse<MeResponse> {
-        public MeSuccessResponse() { super(true, null); }
+        public MeSuccessResponse() {
+            super(true, null);
+        }
     }
 }
