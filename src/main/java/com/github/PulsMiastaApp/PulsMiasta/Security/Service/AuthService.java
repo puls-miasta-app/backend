@@ -16,22 +16,15 @@ import org.springframework.web.server.ResponseStatusException;
 public class AuthService {
 
     private final UserRepository userRepository;
-    private final BlindIndexService blindIndexService;
     private final TokenService tokenService;
     private final PasswordEncoder passwordEncoder;
 
     public AuthResult register(RegisterRequest request) {
-        String blindIndex = blindIndexService.computeIndex(request.pesel());
-
-        if (userRepository.existsByPeselBlindIndex(blindIndex)) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "User already exists");
-        }
         if (userRepository.existsByEmail(request.email())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Email already in use");
         }
 
         User user = new User();
-        user.setPeselBlindIndex(blindIndex);
         user.setPasswordHash(passwordEncoder.encode(request.password()));
         user.setFirstName(request.firstName());
         user.setLastName(request.lastName());
@@ -44,7 +37,7 @@ public class AuthService {
     }
 
     public AuthResult login(LoginRequest request) {
-        User user = findByPesel(request.pesel());
+        User user = findByEmail(request.email());
 
         if (!passwordEncoder.matches(request.password(), user.getPasswordHash())) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials");
@@ -53,13 +46,8 @@ public class AuthService {
         return buildAuthResult(user.getId(), request.rememberMe(), request.clientType());
     }
 
-    /**
-     * Finds a user by raw PESEL. Computes the blind index internally,
-     * then performs a single indexed lookup in the database.
-     */
-    public User findByPesel(String rawPesel) {
-        String blindIndex = blindIndexService.computeIndex(rawPesel);
-        return userRepository.findByPeselBlindIndex(blindIndex)
+    public User findByEmail(String email) {
+        return userRepository.findByEmail(email)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials"));
     }
 

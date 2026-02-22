@@ -41,7 +41,7 @@ class AuthControllerTest {
 
     @Test
     void register_shouldReturn201AndSetCookies() throws Exception {
-        RegisterRequest request = new RegisterRequest("12345678901", "password123", "Jan", "Kowalski", "jan@example.com", false, ClientType.WEB);
+        RegisterRequest request = new RegisterRequest("password123", "Jan", "Kowalski", "jan@example.com", false, ClientType.WEB);
         AuthResult authResult = new AuthResult("session-uuid", null);
 
         when(authService.register(request)).thenReturn(authResult);
@@ -56,7 +56,7 @@ class AuthControllerTest {
 
     @Test
     void register_withRememberMe_shouldSetBothCookies() throws Exception {
-        RegisterRequest request = new RegisterRequest("12345678901", "password123", "Jan", "Kowalski", "jan@example.com", true, ClientType.MOBILE);
+        RegisterRequest request = new RegisterRequest("password123", "Jan", "Kowalski", "jan@example.com", true, ClientType.MOBILE);
         AuthResult authResult = new AuthResult("session-uuid", "remember-uuid");
 
         when(authService.register(request)).thenReturn(authResult);
@@ -69,7 +69,7 @@ class AuthControllerTest {
 
     @Test
     void login_shouldReturn200AndSetCookies() throws Exception {
-        LoginRequest request = new LoginRequest("12345678901", "password123", false, ClientType.WEB);
+        LoginRequest request = new LoginRequest("jan@example.com", "password123", false, ClientType.WEB);
         AuthResult authResult = new AuthResult("session-uuid", null);
 
         when(authService.login(request)).thenReturn(authResult);

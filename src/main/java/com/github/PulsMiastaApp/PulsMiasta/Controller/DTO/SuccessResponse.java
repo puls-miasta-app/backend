@@ -8,7 +8,6 @@ public class SuccessResponse<T> {
 
     @Schema(example = "true")
     private final boolean success;
-    @Schema(example = "{\"id\": 1, \"username\": \"john_doe\"}")
     private final T data;
 
     public SuccessResponse(boolean success, T data) {

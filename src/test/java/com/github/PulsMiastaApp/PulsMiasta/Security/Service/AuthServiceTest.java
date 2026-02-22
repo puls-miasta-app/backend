@@ -28,9 +28,6 @@ class AuthServiceTest {
     private UserRepository userRepository;
 
     @Mock
-    private BlindIndexService blindIndexService;
-
-    @Mock
     private TokenService tokenService;
 
     @Mock
@@ -41,10 +38,8 @@ class AuthServiceTest {
 
     @Test
     void register_shouldCreateUserAndReturnToken() {
-        RegisterRequest request = new RegisterRequest("12345678901", "password123", "Jan", "Kowalski", "jan@example.com", false, ClientType.WEB);
+        RegisterRequest request = new RegisterRequest("password123", "Jan", "Kowalski", "jan@example.com", false, ClientType.WEB);
 
-        when(blindIndexService.computeIndex("12345678901")).thenReturn("blind-index-hex");
-        when(userRepository.existsByPeselBlindIndex("blind-index-hex")).thenReturn(false);
         when(userRepository.existsByEmail("jan@example.com")).thenReturn(false);
         when(passwordEncoder.encode("password123")).thenReturn("hashed-password");
         when(tokenService.createSession(any(Long.class))).thenReturn("session-token-uuid");
@@ -52,8 +47,7 @@ class AuthServiceTest {
         AuthResult result = authService.register(request);
 
         verify(userRepository).save(argThat(user ->
-                user.getPeselBlindIndex().equals("blind-index-hex") &&
-                        user.getPasswordHash().equals("hashed-password") &&
+                user.getPasswordHash().equals("hashed-password") &&
                         user.getFirstName().equals("Jan") &&
                         user.getLastName().equals("Kowalski") &&
                         user.getEmail().equals("jan@example.com") &&
@@ -64,23 +58,9 @@ class AuthServiceTest {
     }
 
     @Test
-    void register_shouldThrowWhenUserExists() {
-        RegisterRequest request = new RegisterRequest("12345678901", "password123", "Jan", "Kowalski", "jan@example.com", false, ClientType.WEB);
-
-        when(blindIndexService.computeIndex("12345678901")).thenReturn("blind-index-hex");
-        when(userRepository.existsByPeselBlindIndex("blind-index-hex")).thenReturn(true);
-
-        assertThatThrownBy(() -> authService.register(request))
-                .isInstanceOf(ResponseStatusException.class)
-                .hasMessage("User already exists");
-    }
-
-    @Test
     void register_shouldThrowWhenEmailExists() {
-        RegisterRequest request = new RegisterRequest("12345678901", "password123", "Jan", "Kowalski", "jan@example.com", false, ClientType.WEB);
+        RegisterRequest request = new RegisterRequest("password123", "Jan", "Kowalski", "jan@example.com", false, ClientType.WEB);
 
-        when(blindIndexService.computeIndex("12345678901")).thenReturn("blind-index-hex");
-        when(userRepository.existsByPeselBlindIndex("blind-index-hex")).thenReturn(false);
         when(userRepository.existsByEmail("jan@example.com")).thenReturn(true);
 
         assertThatThrownBy(() -> authService.register(request))
@@ -90,10 +70,8 @@ class AuthServiceTest {
 
     @Test
     void register_withRememberMe_shouldCreateRememberMeToken() {
-        RegisterRequest request = new RegisterRequest("12345678901", "password123", "Jan", "Kowalski", "jan@example.com", true, ClientType.MOBILE);
+        RegisterRequest request = new RegisterRequest("password123", "Jan", "Kowalski", "jan@example.com", true, ClientType.MOBILE);
 
-        when(blindIndexService.computeIndex("12345678901")).thenReturn("blind-index-hex");
-        when(userRepository.existsByPeselBlindIndex("blind-index-hex")).thenReturn(false);
         when(userRepository.existsByEmail("jan@example.com")).thenReturn(false);
         when(passwordEncoder.encode("password123")).thenReturn("hashed-password");
         when(tokenService.createSession(any(Long.class))).thenReturn("session-token");
@@ -112,10 +90,9 @@ class AuthServiceTest {
         user.setEmail("jan@example.com");
         user.setRole("USER");
 
-        LoginRequest request = new LoginRequest("12345678901", "password123", false, ClientType.WEB);
+        LoginRequest request = new LoginRequest("jan@example.com", "password123", false, ClientType.WEB);
 
-        when(blindIndexService.computeIndex("12345678901")).thenReturn("blind-index-hex");
-        when(userRepository.findByPeselBlindIndex("blind-index-hex")).thenReturn(Optional.of(user));
+        when(userRepository.findByEmail("jan@example.com")).thenReturn(Optional.of(user));
         when(passwordEncoder.matches("password123", "hashed-password")).thenReturn(true);
         when(tokenService.createSession(1L)).thenReturn("session-token");
 
@@ -133,10 +110,9 @@ class AuthServiceTest {
         user.setEmail("jan@example.com");
         user.setRole("USER");
 
-        LoginRequest request = new LoginRequest("12345678901", "password123", true, ClientType.MOBILE);
+        LoginRequest request = new LoginRequest("jan@example.com", "password123", true, ClientType.MOBILE);
 
-        when(blindIndexService.computeIndex("12345678901")).thenReturn("blind-index-hex");
-        when(userRepository.findByPeselBlindIndex("blind-index-hex")).thenReturn(Optional.of(user));
+        when(userRepository.findByEmail("jan@example.com")).thenReturn(Optional.of(user));
         when(passwordEncoder.matches("password123", "hashed-password")).thenReturn(true);
         when(tokenService.createSession(2L)).thenReturn("session-token");
         when(tokenService.createRememberMeToken(2L, ClientType.MOBILE)).thenReturn("remember-token");
@@ -154,10 +130,9 @@ class AuthServiceTest {
         user.setEmail("jan@example.com");
         user.setRole("USER");
 
-        LoginRequest request = new LoginRequest("12345678901", "wrong-password", false, ClientType.WEB);
+        LoginRequest request = new LoginRequest("jan@example.com", "wrong-password", false, ClientType.WEB);
 
-        when(blindIndexService.computeIndex("12345678901")).thenReturn("blind-index-hex");
-        when(userRepository.findByPeselBlindIndex("blind-index-hex")).thenReturn(Optional.of(user));
+        when(userRepository.findByEmail("jan@example.com")).thenReturn(Optional.of(user));
         when(passwordEncoder.matches("wrong-password", "hashed-password")).thenReturn(false);
 
         assertThatThrownBy(() -> authService.login(request))
@@ -166,27 +141,35 @@ class AuthServiceTest {
     }
 
     @Test
-    void findByPesel_shouldReturnUserOnValidPesel() {
+    void login_shouldThrowOnInvalidEmail() {
+        LoginRequest request = new LoginRequest("nonexistent@example.com", "password123", false, ClientType.WEB);
+
+        when(userRepository.findByEmail("nonexistent@example.com")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> authService.login(request))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessage("Invalid credentials");
+    }
+
+    @Test
+    void findByEmail_shouldReturnUserOnValidEmail() {
         User user = new User();
         user.setId(1L);
-        user.setPeselBlindIndex("blind-index-hex");
         user.setEmail("jan@example.com");
 
-        when(blindIndexService.computeIndex("12345678901")).thenReturn("blind-index-hex");
-        when(userRepository.findByPeselBlindIndex("blind-index-hex")).thenReturn(Optional.of(user));
+        when(userRepository.findByEmail("jan@example.com")).thenReturn(Optional.of(user));
 
-        User result = authService.findByPesel("12345678901");
+        User result = authService.findByEmail("jan@example.com");
 
         assertThat(result).isNotNull();
         assertThat(result.getId()).isEqualTo(1L);
     }
 
     @Test
-    void findByPesel_shouldThrowOnInvalidPesel() {
-        when(blindIndexService.computeIndex("99999999999")).thenReturn("blind-index-hex");
-        when(userRepository.findByPeselBlindIndex("blind-index-hex")).thenReturn(Optional.empty());
+    void findByEmail_shouldThrowOnInvalidEmail() {
+        when(userRepository.findByEmail("nonexistent@example.com")).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> authService.findByPesel("99999999999"))
+        assertThatThrownBy(() -> authService.findByEmail("nonexistent@example.com"))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessage("Invalid credentials");
     }

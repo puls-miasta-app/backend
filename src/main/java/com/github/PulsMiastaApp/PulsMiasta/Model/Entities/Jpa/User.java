@@ -5,10 +5,12 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+import java.util.UUID;
+
 @Entity
 @Table(name = "users", indexes = {
-        @Index(name = "idx_pesel_blind_index", columnList = "pesel_blind_index", unique = true),
-        @Index(name = "idx_email", columnList = "email", unique = true)
+        @Index(name = "idx_email", columnList = "email", unique = true),
+        @Index(name = "idx_webauthn_user_handle", columnList = "webauthn_user_handle", unique = true)
 })
 @Getter
 @Setter
@@ -19,15 +21,7 @@ public class User {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    /**
-     * Argon2id blind index of the raw PESEL.
-     * Stored as a 64-char hex string (256-bit output).
-     * Used exclusively for lookup — the original PESEL is never persisted.
-     */
-    @Column(name = "pesel_blind_index", nullable = false, unique = true, length = 64)
-    private String peselBlindIndex;
-
-    @Column(name = "password_hash", nullable = false, length = 255)
+    @Column(name = "password_hash", nullable = false)
     private String passwordHash;
 
     @Column(name = "first_name", nullable = false, length = 100)
@@ -36,9 +30,35 @@ public class User {
     @Column(name = "last_name", nullable = false, length = 100)
     private String lastName;
 
-    @Column(name = "email", nullable = false, unique = true, length = 255)
+    @Column(name = "email", nullable = false, unique = true)
     private String email;
 
     @Column(name = "role", nullable = false, length = 20)
     private String role = "USER";
+
+    /**
+     * WebAuthn user handle — opaque, unique, stable 16-byte identifier (UUID v4 as bytes).
+     * Never changes, never encodes personal data. Used as userHandle in passkey ceremonies.
+     * Generated once at registration time; null for legacy accounts (assigned on first passkey action).
+     */
+    @Column(name = "webauthn_user_handle", nullable = true, unique = true, columnDefinition = "BINARY(16)")
+    private byte[] webauthnUserHandle;
+
+    /**
+     * Ensures a webauthnUserHandle is assigned. Call before any WebAuthn ceremony.
+     * Idempotent — safe to call multiple times.
+     */
+    public void ensureWebauthnUserHandle() {
+        if (this.webauthnUserHandle == null) {
+            UUID uuid = UUID.randomUUID();
+            byte[] bytes = new byte[16];
+            long msb = uuid.getMostSignificantBits();
+            long lsb = uuid.getLeastSignificantBits();
+            for (int i = 0; i < 8; i++) {
+                bytes[i]     = (byte) (msb >>> (56 - 8 * i));
+                bytes[i + 8] = (byte) (lsb >>> (56 - 8 * i));
+            }
+            this.webauthnUserHandle = bytes;
+        }
+    }
 }

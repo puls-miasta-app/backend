@@ -15,8 +15,18 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(ResponseStatusException.class)
     public ResponseEntity<ErrorResponse> handleResponseStatus(ResponseStatusException ex) {
+        String errorCode = null;
+        if (ex.getStatusCode() == HttpStatus.UNAUTHORIZED) {
+            errorCode = "unauthorized";
+        } else if (ex.getStatusCode() == HttpStatus.CONFLICT) {
+            errorCode = "conflict";
+        } else if (ex.getStatusCode() == HttpStatus.NOT_FOUND) {
+            errorCode = "not_found";
+        } else if (ex.getStatusCode() == HttpStatus.BAD_REQUEST) {
+            errorCode = "bad_request";
+        }
         return ResponseEntity.status(ex.getStatusCode())
-                .body(ErrorResponse.of(ex.getReason()));
+                .body(ErrorResponse.of(ex.getReason(), errorCode));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
@@ -25,12 +35,12 @@ public class GlobalExceptionHandler {
                 .map(fe -> fe.getField() + ": " + fe.getDefaultMessage())
                 .collect(Collectors.joining(", "));
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .body(ErrorResponse.of(message));
+                .body(ErrorResponse.of(message, "bad_request"));
     }
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleGeneric(Exception ex) {
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(ErrorResponse.of("Internal server error"));
+                .body(ErrorResponse.of("Internal server error", "internal_server_error"));
     }
 }

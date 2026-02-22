@@ -5,10 +5,6 @@ import jakarta.validation.constraints.*;
 public record RegisterRequest(
 
         @NotBlank
-        @Pattern(regexp = "\\d{11}", message = "PESEL must be exactly 11 digits")
-        String pesel,
-
-        @NotBlank
         @Size(min = 8, message = "Password must be at least 8 characters")
         String password,
 

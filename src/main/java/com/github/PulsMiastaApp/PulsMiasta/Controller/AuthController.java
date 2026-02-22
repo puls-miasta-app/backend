@@ -4,10 +4,17 @@ import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.*;
 import com.github.PulsMiastaApp.PulsMiasta.Security.Filter.AuthTokenFilter;
 import com.github.PulsMiastaApp.PulsMiasta.Security.Service.AuthResult;
 import com.github.PulsMiastaApp.PulsMiasta.Security.Service.AuthService;
+import com.github.PulsMiastaApp.PulsMiasta.Security.Service.SudoModeService;
+import com.github.PulsMiastaApp.PulsMiasta.Security.WebAuthn.DTO.AuthenticationBeginResponse;
+import com.github.PulsMiastaApp.PulsMiasta.Security.WebAuthn.DTO.AuthenticationFinishRequest;
+import com.github.PulsMiastaApp.PulsMiasta.Security.WebAuthn.Service.ChallengeStore;
+import com.github.PulsMiastaApp.PulsMiasta.Security.WebAuthn.Service.WebAuthnService;
+import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -17,14 +24,14 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.Arrays;
 import java.util.Optional;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/v1/auth")
@@ -32,6 +39,8 @@ import java.util.Optional;
 public class AuthController {
 
     private final AuthService authService;
+    private final SudoModeService sudoModeService;
+    private final WebAuthnService webAuthnService;
 
     @Value("${auth.session.ttl-minutes}")
     private long sessionTtlMinutes;
@@ -98,6 +107,84 @@ public class AuthController {
         SecurityContextHolder.clearContext();
 
         return ResponseEntity.ok(SuccessResponse.of("Logged out successfully"));
+    }
+
+    // =========================================================================
+    // Sudo Mode endpoints
+    // =========================================================================
+
+    /**
+     * Checks if the current user has active sudo mode.
+     */
+    @GetMapping("/sudo/status")
+    @Operation(summary = "Check if sudo mode is active")
+    @Tag(name = "Authentication")
+    public ResponseEntity<SuccessResponse<SudoStatusResponse>> sudoStatus(
+            @AuthenticationPrincipal com.github.PulsMiastaApp.PulsMiasta.Security.Model.AuthPrincipal principal,
+            HttpServletRequest request) {
+
+        String sessionToken = extractCookie(request, AuthTokenFilter.SESSION_COOKIE_NAME)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication required"));
+
+        boolean isActive = sudoModeService.isSudoModeActive(sessionToken);
+        SudoStatusResponse response = new SudoStatusResponse(isActive);
+
+        return ResponseEntity.ok(SuccessResponse.of(response));
+    }
+
+    /**
+     * Begins sudo mode verification using passkey authentication.
+     */
+    @PostMapping("/sudo/begin")
+    @Operation(summary = "Begin sudo mode verification")
+    @Tag(name = "Authentication")
+    public ResponseEntity<SuccessResponse<AuthenticationBeginResponse>> sudoBegin(
+            @AuthenticationPrincipal com.github.PulsMiastaApp.PulsMiasta.Security.Model.AuthPrincipal principal) {
+
+        String sessionKey = UUID.randomUUID().toString();
+        AuthenticationBeginResponse options = webAuthnService.beginAuthentication(sessionKey);
+        return ResponseEntity.ok(SuccessResponse.of(options));
+    }
+
+    /**
+     * Completes sudo mode verification using passkey authentication.
+     */
+    @PostMapping("/sudo/finish")
+    @Operation(summary = "Complete sudo mode verification")
+    @Tag(name = "Authentication")
+    public ResponseEntity<SuccessResponse<String>> sudoFinish(
+            @AuthenticationPrincipal com.github.PulsMiastaApp.PulsMiasta.Security.Model.AuthPrincipal principal,
+            @Valid @RequestBody AuthenticationFinishRequest request,
+            HttpServletRequest httpRequest) {
+
+        webAuthnService.finishAuthentication(request);
+
+        String sessionToken = extractCookie(httpRequest, AuthTokenFilter.SESSION_COOKIE_NAME)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication required"));
+
+        sudoModeService.activateSudoMode(sessionToken);
+
+        return ResponseEntity.ok(SuccessResponse.of("Sudo mode activated"));
+    }
+
+    /**
+     * Deactivates sudo mode.
+     */
+    @PostMapping("/sudo/deactivate")
+    @Operation(summary = "Deactivate sudo mode")
+    @Tag(name = "Authentication")
+    public ResponseEntity<SuccessResponse<String>> sudoDeactivate(
+            @AuthenticationPrincipal com.github.PulsMiastaApp.PulsMiasta.Security.Model.AuthPrincipal principal,
+            HttpServletRequest request) {
+
+        String sessionToken = extractCookie(request, AuthTokenFilter.SESSION_COOKIE_NAME)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication required"));
+
+        sudoModeService.deactivateSudoMode(sessionToken);
+        return ResponseEntity.ok(SuccessResponse.of("Sudo mode deactivated"));
+    }
+
+    record SudoStatusResponse(boolean isActive) {
     }
 
     // -------------------------------------------------------------------------
