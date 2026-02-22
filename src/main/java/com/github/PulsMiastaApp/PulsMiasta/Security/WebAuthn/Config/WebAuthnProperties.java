@@ -5,12 +5,11 @@ import lombok.Setter;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
-import java.util.List;
 import java.util.Set;
 
 /**
  * WebAuthn / Passkey configuration properties.
- *
+ * <p>
  * Example application.properties:
  * <pre>
  *   webauthn.rp-id=example.com
@@ -18,7 +17,7 @@ import java.util.Set;
  *   webauthn.allowed-origins=https://example.com,http://localhost:3000
  *   webauthn.challenge-ttl-seconds=300
  * </pre>
- *
+ * <p>
  * The RP ID must be the effective domain of the origin(s) your frontend runs on.
  * For mobile apps using react-native-passkey the origin is typically the associated domain.
  */
@@ -34,7 +33,9 @@ public class WebAuthnProperties {
      */
     private String rpId = "localhost";
 
-    /** Human-readable relying party name shown to the user in the passkey dialog. */
+    /**
+     * Human-readable relying party name shown to the user in the passkey dialog.
+     */
     private String rpName = "PulsMiasta";
 
     /**

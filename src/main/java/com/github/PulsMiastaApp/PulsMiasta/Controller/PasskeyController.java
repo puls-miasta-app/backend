@@ -160,7 +160,7 @@ public class PasskeyController {
 
     /**
      * Completes the passkey authentication ceremony and issues a session cookie.
-     *
+     * <p>
      * On success, sets the same {@code auth_token} (and optionally {@code remember_me})
      * HttpOnly cookies as the PESEL+password login endpoint.
      */
@@ -200,7 +200,7 @@ public class PasskeyController {
 
     /**
      * Revokes (deletes) a specific passkey by its database ID.
-     *
+     * <p>
      * Only the owner of the credential can delete it (enforced in the service layer).
      */
     @DeleteMapping("/credentials/{id}")

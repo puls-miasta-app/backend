@@ -5,7 +5,7 @@ import jakarta.validation.constraints.NotNull;
 
 /**
  * Sent by the client to complete a passkey registration ceremony.
- *
+ * <p>
  * Contains the authenticator's attestation response as returned by
  * {@code navigator.credentials.create()} serialised to JSON.
  * Binary fields are Base64url-encoded.
@@ -47,5 +47,6 @@ public record RegistrationFinishRequest(
             @NotBlank String attestationObject,
             /** Comma-separated transports reported by the authenticator (optional). */
             String transports
-    ) {}
+    ) {
+    }
 }

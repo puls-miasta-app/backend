@@ -11,6 +11,8 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
     Optional<User> findByEmail(String email);
 
-    /** Lookup by the WebAuthn opaque user handle (16-byte BINARY). */
+    /**
+     * Lookup by the WebAuthn opaque user handle (16-byte BINARY).
+     */
     Optional<User> findByWebauthnUserHandle(byte[] webauthnUserHandle);
 }

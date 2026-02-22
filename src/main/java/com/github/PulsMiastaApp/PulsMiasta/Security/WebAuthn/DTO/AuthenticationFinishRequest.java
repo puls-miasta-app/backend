@@ -6,7 +6,7 @@ import jakarta.validation.constraints.NotNull;
 
 /**
  * Sent by the client to complete a passkey authentication ceremony.
- *
+ * <p>
  * Contains the authenticator's assertion response as returned by
  * {@code navigator.credentials.get()} serialised to JSON.
  */
@@ -49,5 +49,6 @@ public record AuthenticationFinishRequest(
             @NotBlank String signature,
             /** Base64url-encoded user handle returned by the authenticator (may be null for non-discoverable). */
             String userHandle
-    ) {}
+    ) {
+    }
 }

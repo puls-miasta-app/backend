@@ -55,7 +55,7 @@ public class User {
             long msb = uuid.getMostSignificantBits();
             long lsb = uuid.getLeastSignificantBits();
             for (int i = 0; i < 8; i++) {
-                bytes[i]     = (byte) (msb >>> (56 - 8 * i));
+                bytes[i] = (byte) (msb >>> (56 - 8 * i));
                 bytes[i + 8] = (byte) (lsb >>> (56 - 8 * i));
             }
             this.webauthnUserHandle = bytes;

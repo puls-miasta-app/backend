@@ -1,6 +1,5 @@
 package com.github.PulsMiastaApp.PulsMiasta.Security.WebAuthn.Service;
 
-import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.ClientType;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.User;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.UserCredential;
 import com.github.PulsMiastaApp.PulsMiasta.Repository.UserCredentialRepository;
@@ -8,11 +7,12 @@ import com.github.PulsMiastaApp.PulsMiasta.Repository.UserRepository;
 import com.github.PulsMiastaApp.PulsMiasta.Security.Service.AuthResult;
 import com.github.PulsMiastaApp.PulsMiasta.Security.Service.TokenService;
 import com.github.PulsMiastaApp.PulsMiasta.Security.WebAuthn.Config.WebAuthnProperties;
-import com.github.PulsMiastaApp.PulsMiasta.Security.WebAuthn.DTO.*;
+import com.github.PulsMiastaApp.PulsMiasta.Security.WebAuthn.DTO.AuthenticationBeginResponse;
+import com.github.PulsMiastaApp.PulsMiasta.Security.WebAuthn.DTO.AuthenticationFinishRequest;
+import com.github.PulsMiastaApp.PulsMiasta.Security.WebAuthn.DTO.RegistrationBeginResponse;
+import com.github.PulsMiastaApp.PulsMiasta.Security.WebAuthn.DTO.RegistrationFinishRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.web.webauthn.api.*;
 import org.springframework.security.web.webauthn.management.*;
 import org.springframework.stereotype.Service;
@@ -20,27 +20,30 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
-import java.util.*;
+import java.util.Arrays;
+import java.util.Base64;
+import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
  * Core WebAuthn / Passkey business logic.
  * <p>
  * Orchestrates the two-phase WebAuthn ceremonies:
- *   1. Registration (add a new passkey to an existing account)
- *   2. Authentication (log in with an existing passkey)
+ * 1. Registration (add a new passkey to an existing account)
+ * 2. Authentication (log in with an existing passkey)
  * <p>
  * Uses {@link Webauthn4JRelyingPartyOperations} from Spring Security WebAuthn
  * for cryptographic verification. All key material validation (signature, counter,
  * origin, rpId, user presence / verification flags) is delegated to the library.
  * <p>
  * Challenge lifecycle:
- *   - Stored in Redis via {@link ChallengeStore} with a short TTL.
- *   - Consumed once in the finish phase (use-once, immune to replay).
+ * - Stored in Redis via {@link ChallengeStore} with a short TTL.
+ * - Consumed once in the finish phase (use-once, immune to replay).
  * <p>
  * Session lifecycle:
- *   - After a successful authentication ceremony, a session token is issued via
- *     {@link TokenService} — the exact same mechanism as PESEL+password login.
+ * - After a successful authentication ceremony, a session token is issued via
+ * {@link TokenService} — the exact same mechanism as PESEL+password login.
  */
 @Service
 @Slf4j
@@ -234,10 +237,10 @@ public class WebAuthnService {
         //    Reject early with a clear message instead of an opaque NPE from Webauthn4J.
         if (storedCred.getAttestationObject() == null) {
             log.warn("Credential {} has no stored attestationObject (registered before schema migration). " +
-                     "User must delete and re-register this passkey.", request.id());
+                    "User must delete and re-register this passkey.", request.id());
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED,
                     "This passkey was registered before a server update and must be re-registered. " +
-                    "Please log in with your password, delete this passkey, and add it again.");
+                            "Please log in with your password, delete this passkey, and add it again.");
         }
 
         // 5. Resolve the owning user.
@@ -407,12 +410,12 @@ public class WebAuthnService {
 
     /**
      * Builds request options for the discoverable credential flow.
-     *
+     * <p>
      * Empty {@code allowCredentials} signals to both the authenticator and the Webauthn4J library
      * that any passkey for this RP is acceptable. The authenticator selects the key autonomously
      * (based on resident key storage) and returns the {@code userHandle} in the assertion,
      * which we use to identify the user in {@link #resolveUserFromAssertion}.
-     *
+     * <p>
      * {@code userVerification = REQUIRED} enforces biometric/PIN (UP + UV flags must both be set).
      */
     private PublicKeyCredentialRequestOptions buildDiscoverableRequestOptions(byte[] challenge) {
@@ -453,9 +456,9 @@ public class WebAuthnService {
         if (request.response().transports() != null) {
             String t = request.response().transports().toLowerCase();
             if (t.contains("internal")) return "Built-in authenticator";
-            if (t.contains("usb"))      return "USB Security Key";
-            if (t.contains("nfc"))      return "NFC Security Key";
-            if (t.contains("ble"))      return "Bluetooth Security Key";
+            if (t.contains("usb")) return "USB Security Key";
+            if (t.contains("nfc")) return "NFC Security Key";
+            if (t.contains("ble")) return "Bluetooth Security Key";
         }
         return "Security Key";
     }

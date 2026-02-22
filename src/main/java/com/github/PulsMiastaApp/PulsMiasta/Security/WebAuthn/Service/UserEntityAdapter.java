@@ -9,17 +9,14 @@ import org.springframework.security.web.webauthn.api.PublicKeyCredentialUserEnti
 import org.springframework.security.web.webauthn.management.PublicKeyCredentialUserEntityRepository;
 import org.springframework.stereotype.Component;
 
-import java.util.Arrays;
-import java.util.Optional;
-
 /**
  * Adapts our JPA {@link User} entity to the Spring Security WebAuthn
  * {@link PublicKeyCredentialUserEntityRepository} interface.
- *
+ * <p>
  * The user handle (id) is the {@code webauthnUserHandle} byte array stored on the User entity —
  * an opaque, stable, never-changing UUID-derived 16-byte value.
  * It must never encode personal data (GDPR / WebAuthn spec §6.1).
- *
+ * <p>
  * This adapter is read-only for the WebAuthn library — "save" and "delete" operations
  * are handled by our own JPA layer (AuthService / PasskeyController).
  */

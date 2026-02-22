@@ -8,7 +8,7 @@ import java.util.Base64;
 /**
  * Projection of a {@link UserCredential} returned to the authenticated user
  * for credential management (list / delete).
- *
+ * <p>
  * The public key bytes are NOT included — there is no reason to expose them to the client.
  */
 public record CredentialInfo(

@@ -7,7 +7,6 @@ import com.github.PulsMiastaApp.PulsMiasta.Security.Service.AuthService;
 import com.github.PulsMiastaApp.PulsMiasta.Security.Service.SudoModeService;
 import com.github.PulsMiastaApp.PulsMiasta.Security.WebAuthn.DTO.AuthenticationBeginResponse;
 import com.github.PulsMiastaApp.PulsMiasta.Security.WebAuthn.DTO.AuthenticationFinishRequest;
-import com.github.PulsMiastaApp.PulsMiasta.Security.WebAuthn.Service.ChallengeStore;
 import com.github.PulsMiastaApp.PulsMiasta.Security.WebAuthn.Service.WebAuthnService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;

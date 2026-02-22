@@ -4,11 +4,11 @@ import java.util.List;
 
 /**
  * Sent to the client to start a passkey authentication ceremony.
- *
+ * <p>
  * Maps to {@code PublicKeyCredentialRequestOptions}.
  * The client passes this to {@code navigator.credentials.get()} (web)
  * or the react-native-passkey equivalent (mobile).
- *
+ * <p>
  * If {@code allowCredentials} is empty, the ceremony is "discoverable" —
  * the authenticator shows all passkeys for this RP and the user picks one.
  * This enables username-less login.
@@ -38,5 +38,6 @@ public record AuthenticationBeginResponse(
         String userVerification
 
 ) {
-    public record AllowedCredential(String type, String id, List<String> transports) {}
+    public record AllowedCredential(String type, String id, List<String> transports) {
+    }
 }

@@ -8,15 +8,16 @@ import org.springframework.security.web.webauthn.management.UserCredentialReposi
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Instant;
-import java.util.*;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
  * Adapts our JPA {@link UserCredential} entity to the Spring Security WebAuthn
  * {@link UserCredentialRepository} interface used internally by
  * {@link org.springframework.security.web.webauthn.management.Webauthn4JRelyingPartyOperations}.
- *
+ * <p>
  * This is the bridge between the WebAuthn library's credential model and our MySQL-backed
  * credential storage. Uses the fully-qualified JPA repository to avoid import ambiguity
  * with Spring Security's same-named interface.

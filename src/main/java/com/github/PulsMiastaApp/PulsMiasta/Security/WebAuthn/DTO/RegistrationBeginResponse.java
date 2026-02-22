@@ -4,11 +4,11 @@ import java.util.List;
 
 /**
  * Sent to the client to start a passkey registration ceremony.
- *
+ * <p>
  * Maps to the Web Authentication API {@code PublicKeyCredentialCreationOptions}.
  * The client passes this object directly to {@code navigator.credentials.create()} (web)
  * or the equivalent react-native-passkey / expo-passkeys call (mobile).
- *
+ * <p>
  * All binary values are Base64url-encoded (no padding) as required by the WebAuthn JSON serialisation spec.
  */
 public record RegistrationBeginResponse(
@@ -44,7 +44,8 @@ public record RegistrationBeginResponse(
         String attestation
 
 ) {
-    public record RpInfo(String id, String name) {}
+    public record RpInfo(String id, String name) {
+    }
 
     public record UserInfo(
             /** Base64url-encoded user handle (16 bytes). */
@@ -53,11 +54,14 @@ public record RegistrationBeginResponse(
             String name,
             /** Display name shown in the passkey dialog. */
             String displayName
-    ) {}
+    ) {
+    }
 
-    public record PubKeyCredParam(String type, int alg) {}
+    public record PubKeyCredParam(String type, int alg) {
+    }
 
-    public record AllowedCredential(String type, String id, List<String> transports) {}
+    public record AllowedCredential(String type, String id, List<String> transports) {
+    }
 
     public record AuthenticatorSelection(
             /** "platform" for Face ID / Touch ID / Windows Hello; "cross-platform" for USB keys. null = no preference. */
@@ -66,5 +70,6 @@ public record RegistrationBeginResponse(
             String residentKey,
             /** Whether user verification (biometric/PIN) is required. "preferred" allows fallback. */
             String userVerification
-    ) {}
+    ) {
+    }
 }
