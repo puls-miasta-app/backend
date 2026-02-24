@@ -36,6 +36,9 @@ public class User {
     @Column(name = "role", nullable = false, length = 20)
     private String role = "USER";
 
+    @Column(name = "email_verified", nullable = false)
+    private boolean emailVerified = false;
+
     /**
      * WebAuthn user handle — opaque, unique, stable 16-byte identifier (UUID v4 as bytes).
      * Never changes, never encodes personal data. Used as userHandle in passkey ceremonies.

@@ -18,6 +18,7 @@ public class AuthService {
     private final UserRepository userRepository;
     private final TokenService tokenService;
     private final PasswordEncoder passwordEncoder;
+    private final EmailVerificationService emailVerificationService;
 
     public AuthResult register(RegisterRequest request) {
         if (userRepository.existsByEmail(request.email())) {
@@ -32,6 +33,7 @@ public class AuthService {
         user.setRole("USER");
 
         userRepository.save(user);
+        emailVerificationService.sendVerificationEmail(user);
 
         return buildAuthResult(user.getId(), request.rememberMe(), request.clientType());
     }
