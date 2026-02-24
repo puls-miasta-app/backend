@@ -4,6 +4,7 @@ import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.*;
 import com.github.PulsMiastaApp.PulsMiasta.Security.Filter.AuthTokenFilter;
 import com.github.PulsMiastaApp.PulsMiasta.Security.Service.AuthResult;
 import com.github.PulsMiastaApp.PulsMiasta.Security.Service.AuthService;
+import com.github.PulsMiastaApp.PulsMiasta.Security.Service.EmailVerificationService;
 import com.github.PulsMiastaApp.PulsMiasta.Security.Service.SudoModeService;
 import com.github.PulsMiastaApp.PulsMiasta.Security.WebAuthn.DTO.AuthenticationBeginResponse;
 import com.github.PulsMiastaApp.PulsMiasta.Security.WebAuthn.DTO.AuthenticationFinishRequest;
@@ -40,6 +41,7 @@ public class AuthController {
     private final AuthService authService;
     private final SudoModeService sudoModeService;
     private final WebAuthnService webAuthnService;
+    private final EmailVerificationService emailVerificationService;
 
     @Value("${auth.session.ttl-minutes}")
     private long sessionTtlMinutes;
@@ -68,6 +70,18 @@ public class AuthController {
 
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(SuccessResponse.of("Registered successfully"));
+    }
+
+    @GetMapping("/verify-email")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
+                    schema = @Schema(implementation = VerifyEmailSuccessResponse.class))),
+            @ApiResponse(responseCode = "400", content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
+                    schema = @Schema(implementation = ErrorResponse.class)))
+    })
+    public ResponseEntity<SuccessResponse<String>> verifyEmail(@RequestParam String token) {
+        emailVerificationService.verifyToken(token);
+        return ResponseEntity.ok(SuccessResponse.of("Email verified successfully"));
     }
 
     @PostMapping("/login")
@@ -208,6 +222,13 @@ public class AuthController {
     private static class LogoutSuccessResponse extends SuccessResponse<String> {
         public LogoutSuccessResponse() {
             super(true, "Logged out successfully");
+        }
+    }
+
+    @Schema(name = "VerifyEmailSuccessResponse")
+    private static class VerifyEmailSuccessResponse extends SuccessResponse<String> {
+        public VerifyEmailSuccessResponse() {
+            super(true, "Email verified successfully");
         }
     }
 
