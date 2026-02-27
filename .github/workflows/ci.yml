@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  pull_request:
+    paths:
+      - 'backend/**'
+      - '.github/workflows/ci.yml'
+      - '.github/workflows/build.yml'
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - name: Detect changes
+        id: changes
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            backend:
+              - "backend/**"
+              - ".github/workflows/ci.yml"
+      - name: Check for changes
+        id: change_status
+        run: |
+          if [[ "${{ steps.changes.outputs.backend }}" == "true" ]]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+      - uses: actions/setup-java@v4
+        if: steps.change_status.outputs.changed == 'true'
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      - name: Prepare test config and run tests
+        shell: bash
+        if: steps.change_status.outputs.changed == 'true'
+        run: |
+          mv src/main/resources/application.properties.test src/main/resources/application.properties
+          set -a
+          source .env.test
+          set +a
+          ./mvnw -B verify
