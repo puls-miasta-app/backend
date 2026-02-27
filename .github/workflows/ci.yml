@@ -3,6 +3,7 @@ name: CI
 on:
   pull_request:
     paths:
+      - '**'
       - '.github/workflows/ci.yml'
       - '.github/workflows/build.yml'
 
@@ -15,7 +16,6 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: backend
     steps:
       - uses: actions/checkout@v4
       - name: Detect changes
@@ -24,12 +24,12 @@ jobs:
         with:
           filters: |
             backend:
-              - "backend/**"
+              - "**"
               - ".github/workflows/ci.yml"
       - name: Check for changes
         id: change_status
         run: |
-          if [[ "${{ steps.changes.outputs.backend }}" == "true" ]]; then
+          if [[ "${{ steps.changes.outputs.project }}" == "true" ]]; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
           else
             echo "changed=false" >> "$GITHUB_OUTPUT"

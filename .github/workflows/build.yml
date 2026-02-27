@@ -32,7 +32,7 @@ jobs:
       - name: Check for changes
         id: change_status
         run: |
-          if [[ "${{ steps.changes.outputs.backend }}" == "true" ]]; then
+          if [[ "${{ steps.changes.outputs.project }}" == "true" ]]; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
           else
             echo "changed=false" >> "$GITHUB_OUTPUT"
@@ -75,8 +75,8 @@ jobs:
         uses: docker/build-push-action@v6
         if: steps.changes.outputs.backend == 'true'
         with:
-          context: ./backend
-          file: ./backend/Dockerfile
+          context: .
+          file: ./Dockerfile
           push: true
           tags: ${{ steps.meta_api.outputs.tags }}
           labels: ${{ steps.meta_api.outputs.labels }}
@@ -109,7 +109,7 @@ jobs:
 
             SERVICES=()
 
-            if [[ "${{ steps.changes.outputs.backend }}" == "true" ]]; then
+            if [[ "${{ steps.changes.outputs.project }}" == "true" ]]; then
               SERVICES+=("api")
             fi
 
