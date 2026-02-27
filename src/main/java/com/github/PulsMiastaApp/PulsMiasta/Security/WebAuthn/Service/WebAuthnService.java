@@ -11,6 +11,7 @@ import com.github.PulsMiastaApp.PulsMiasta.Security.WebAuthn.DTO.AuthenticationB
 import com.github.PulsMiastaApp.PulsMiasta.Security.WebAuthn.DTO.AuthenticationFinishRequest;
 import com.github.PulsMiastaApp.PulsMiasta.Security.WebAuthn.DTO.RegistrationBeginResponse;
 import com.github.PulsMiastaApp.PulsMiasta.Security.WebAuthn.DTO.RegistrationFinishRequest;
+import com.github.PulsMiastaApp.PulsMiasta.Security.WebAuthn.DTO.SudoFinishRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.web.webauthn.api.*;
@@ -193,16 +194,8 @@ public class WebAuthnService {
      * @return the request options the client passes to {@code navigator.credentials.get()}
      */
     public AuthenticationBeginResponse beginAuthentication(String sessionKey) {
-        byte[] challenge = challengeStore.generateAndStore("auth:" + sessionKey);
-
-        return new AuthenticationBeginResponse(
-                sessionKey,
-                Base64.getUrlEncoder().withoutPadding().encodeToString(challenge),
-                props.getChallengeTtlSeconds() * 1000L,
-                props.getRpId(),
-                List.of(),   // empty → discoverable credential flow, authenticator picks the key
-                "required"   // required: biometric/PIN must be performed (UP + UV flags)
-        );
+        // Discoverable flow — empty allowCredentials, authenticator picks the key autonomously
+        return buildBeginAuthResponse(sessionKey, List.of());
     }
 
     // =========================================================================
@@ -223,60 +216,85 @@ public class WebAuthnService {
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.BAD_REQUEST, "Authentication ceremony expired or already completed"));
 
-        // 2. Build PublicKeyCredential<AssertionResponse> from client JSON
+        // 2. Build assertion credential, verify cryptographically, update last-used
         PublicKeyCredential<AuthenticatorAssertionResponse> credential = buildAssertionCredential(request);
+        UserCredential storedCred = verifyAssertionAndUpdate(challenge, request.rawId(), request.id(), credential);
 
-        // 3. Discoverable flow: identify credential by credentialId from the assertion.
-        //    The authenticator chose which key to use — we look it up by raw credential ID.
-        byte[] rawCredId = Base64.getUrlDecoder().decode(request.rawId());
-        UserCredential storedCred = credentialRepository.findByCredentialId(rawCredId)
-                .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatus.UNAUTHORIZED, "Unknown passkey — credential not registered on this server"));
-
-        // 4. Guard: credentials registered before the attestation storage fix have null bytes.
-        //    Reject early with a clear message instead of an opaque NPE from Webauthn4J.
-        if (storedCred.getAttestationObject() == null) {
-            log.warn("Credential {} has no stored attestationObject (registered before schema migration). " +
-                    "User must delete and re-register this passkey.", request.id());
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED,
-                    "This passkey was registered before a server update and must be re-registered. " +
-                            "Please log in with your password, delete this passkey, and add it again.");
-        }
-
-        // 5. Resolve the owning user.
-        //    Primary: use the userHandle returned by the authenticator (discoverable credential spec §7.3).
-        //    Fallback: resolve via the stored credential's FK (handles older non-resident keys).
+        // 3. Resolve the owning user (userHandle from authenticator or FK fallback)
         User user = resolveUserFromAssertion(request, storedCred);
+        log.info("Passkey authentication success: userId={} credentialId={}", user.getId(), request.id());
 
-        // 6. Build request options for Webauthn4J verification.
-        //    allowCredentials is empty (discoverable flow) — library verifies rpId + challenge + signature.
-        PublicKeyCredentialRequestOptions requestOptions = buildDiscoverableRequestOptions(challenge);
-
-        // 7. Delegate cryptographic verification to Webauthn4J (signature, counter, flags, origin, rpId)
-        RelyingPartyAuthenticationRequest authRequest = new RelyingPartyAuthenticationRequest(
-                requestOptions,
-                credential
-        );
-
-        try {
-            rpOps.authenticate(authRequest);
-            log.info("Passkey authentication success: userId={} credentialId={}", user.getId(), request.id());
-        } catch (Exception ex) {
-            log.warn("Passkey authentication failed for credentialId={}: {}", request.id(), ex.getMessage());
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Passkey verification failed");
-        }
-
-        // 8. Update last-used timestamp on the credential
-        storedCred.setLastUsedAt(Instant.now());
-        credentialRepository.save(storedCred);
-
-        // 9. Issue session tokens — same mechanism as PESEL+password login
+        // 4. Issue session tokens — same mechanism as PESEL+password login
         String sessionToken = tokenService.createSession(user.getId());
         String rememberMeToken = request.rememberMe()
                 ? tokenService.createRememberMeToken(user.getId(), request.clientType())
                 : null;
 
         return new AuthResult(sessionToken, rememberMeToken);
+    }
+
+    // =========================================================================
+    // Internal builders
+    // =========================================================================
+
+    /**
+     * Builds an {@link AuthenticationBeginResponse} for a given {@code sessionKey} and
+     * {@code allowCredentials} list. Called by both {@link #beginAuthentication} (empty list
+     * → discoverable flow) and {@link #beginSudoAuthentication} (user-scoped list).
+     */
+    private AuthenticationBeginResponse buildBeginAuthResponse(
+            String sessionKey,
+            List<AuthenticationBeginResponse.AllowedCredential> allowCredentials) {
+
+        byte[] challenge = challengeStore.generateAndStore("auth:" + sessionKey);
+        return new AuthenticationBeginResponse(
+                sessionKey,
+                Base64.getUrlEncoder().withoutPadding().encodeToString(challenge),
+                props.getChallengeTtlSeconds() * 1000L,
+                props.getRpId(),
+                allowCredentials,
+                "required"   // biometric/PIN must be performed (UP + UV flags)
+        );
+    }
+
+    /**
+     * Verifies a WebAuthn assertion against {@code challenge}, looks up the credential,
+     * guards against legacy credentials without stored attestation, delegates
+     * cryptographic verification to Webauthn4J, updates the last-used timestamp, and
+     * returns the persisted {@link UserCredential}.
+     * <p>
+     * Shared by {@link #finishAuthentication} and {@link #verifyForSudoMode} to avoid
+     * duplicating the assertion verification pipeline.
+     */
+    private UserCredential verifyAssertionAndUpdate(byte[] challenge, String rawId, String credentialId,
+                                                    PublicKeyCredential<AuthenticatorAssertionResponse> credential) {
+
+        byte[] rawCredId = Base64.getUrlDecoder().decode(rawId);
+        UserCredential storedCred = credentialRepository.findByCredentialId(rawCredId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.UNAUTHORIZED, "Unknown passkey — credential not registered on this server"));
+
+        // Guard: credentials registered before the attestation storage fix have null bytes.
+        // Reject early with a clear message instead of an opaque NPE from Webauthn4J.
+        if (storedCred.getAttestationObject() == null) {
+            log.warn("Credential {} has no stored attestationObject (registered before schema migration). " +
+                    "User must delete and re-register this passkey.", credentialId);
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED,
+                    "This passkey was registered before a server update and must be re-registered. " +
+                            "Please delete this passkey and add it again.");
+        }
+
+        PublicKeyCredentialRequestOptions requestOptions = buildDiscoverableRequestOptions(challenge);
+        try {
+            rpOps.authenticate(new RelyingPartyAuthenticationRequest(requestOptions, credential));
+        } catch (Exception ex) {
+            log.warn("Passkey assertion failed for credentialId={}: {}", credentialId, ex.getMessage());
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Passkey verification failed");
+        }
+
+        storedCred.setLastUsedAt(Instant.now());
+        credentialRepository.save(storedCred);
+        return storedCred;
     }
 
     /**
@@ -313,6 +331,72 @@ public class WebAuthnService {
     }
 
     // =========================================================================
+    // SUDO MODE — Begin
+    // =========================================================================
+
+    /**
+     * Starts a passkey authentication ceremony scoped to a specific user's credentials.
+     * <p>
+     * Unlike {@link #beginAuthentication} (which uses the discoverable/empty-allow flow),
+     * this method populates {@code allowCredentials} with only the given user's registered
+     * passkeys. This ensures that only the currently authenticated user can satisfy the
+     * sudo mode challenge — an attacker cannot use a different user's passkey.
+     *
+     * @param userId     the authenticated user's ID
+     * @param sessionKey an opaque key for this ceremony (returned to the client to echo back)
+     * @return the request options the client passes to {@code navigator.credentials.get()}
+     */
+    public AuthenticationBeginResponse beginSudoAuthentication(Long userId, String sessionKey) {
+        List<AuthenticationBeginResponse.AllowedCredential> allowCredentials =
+                credentialRepository.findAllByUserId(userId).stream()
+                        .map(c -> new AuthenticationBeginResponse.AllowedCredential(
+                                "public-key",
+                                Base64.getUrlEncoder().withoutPadding().encodeToString(c.getCredentialId()),
+                                parseTransportList(c.getTransports())
+                        ))
+                        .toList();
+        return buildBeginAuthResponse(sessionKey, allowCredentials);
+    }
+
+    // =========================================================================
+    // SUDO MODE — Finish
+    // =========================================================================
+
+    /**
+     * Completes the sudo mode passkey verification ceremony.
+     * <p>
+     * Verifies the WebAuthn assertion cryptographically and confirms that the credential
+     * used belongs to {@code authenticatedUserId}. Does NOT issue new session tokens —
+     * the caller is responsible for activating sudo mode on the existing session.
+     *
+     * @param request             the assertion response from the authenticator
+     * @param authenticatedUserId the ID of the currently authenticated user (from SecurityContext)
+     * @throws org.springframework.web.server.ResponseStatusException 400 if ceremony expired,
+     *                                                                 401 if verification fails or credential ownership mismatch
+     */
+    @Transactional
+    public void verifyForSudoMode(SudoFinishRequest request, Long authenticatedUserId) {
+        // 1. Retrieve and consume the challenge (use-once, replay-proof)
+        byte[] challenge = challengeStore.consumeChallenge("auth:" + request.sessionKey())
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.BAD_REQUEST, "Sudo verification ceremony expired or already completed"));
+
+        // 2. Build assertion credential, verify cryptographically, update last-used
+        PublicKeyCredential<AuthenticatorAssertionResponse> credential = buildAssertionCredential(request);
+        UserCredential storedCred = verifyAssertionAndUpdate(challenge, request.rawId(), request.id(), credential);
+
+        // 3. Ownership check: the credential MUST belong to the authenticated user
+        if (!storedCred.getUser().getId().equals(authenticatedUserId)) {
+            log.warn("Sudo mode: credential owner userId={} does not match authenticated userId={}",
+                    storedCred.getUser().getId(), authenticatedUserId);
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Passkey verification failed");
+        }
+
+        log.info("Sudo mode passkey verification success: userId={} credentialId={}",
+                authenticatedUserId, request.id());
+    }
+
+    // =========================================================================
     // Credential management helpers
     // =========================================================================
 
@@ -331,10 +415,6 @@ public class WebAuthnService {
         }
         credentialRepository.deleteByIdAndUserId(credentialId, userId);
     }
-
-    // =========================================================================
-    // Internal builders
-    // =========================================================================
 
     private PublicKeyCredential<AuthenticatorAttestationResponse> buildAttestationCredential(
             RegistrationFinishRequest req) {
@@ -364,20 +444,43 @@ public class WebAuthnService {
 
     private PublicKeyCredential<AuthenticatorAssertionResponse> buildAssertionCredential(
             AuthenticationFinishRequest req) {
+        return buildAssertionCredentialRaw(
+                req.id(), req.rawId(),
+                req.response().clientDataJSON(),
+                req.response().authenticatorData(),
+                req.response().signature(),
+                req.response().userHandle()
+        );
+    }
+
+    private PublicKeyCredential<AuthenticatorAssertionResponse> buildAssertionCredential(
+            SudoFinishRequest req) {
+        return buildAssertionCredentialRaw(
+                req.id(), req.rawId(),
+                req.response().clientDataJSON(),
+                req.response().authenticatorData(),
+                req.response().signature(),
+                req.response().userHandle()
+        );
+    }
+
+    private PublicKeyCredential<AuthenticatorAssertionResponse> buildAssertionCredentialRaw(
+            String id, String rawId,
+            String clientDataJSON, String authenticatorData, String signature, String userHandle) {
 
         AuthenticatorAssertionResponse.AuthenticatorAssertionResponseBuilder responseBuilder =
                 AuthenticatorAssertionResponse.builder()
-                        .clientDataJSON(Bytes.fromBase64(req.response().clientDataJSON()))
-                        .authenticatorData(Bytes.fromBase64(req.response().authenticatorData()))
-                        .signature(Bytes.fromBase64(req.response().signature()));
+                        .clientDataJSON(Bytes.fromBase64(clientDataJSON))
+                        .authenticatorData(Bytes.fromBase64(authenticatorData))
+                        .signature(Bytes.fromBase64(signature));
 
-        if (req.response().userHandle() != null && !req.response().userHandle().isBlank()) {
-            responseBuilder.userHandle(Bytes.fromBase64(req.response().userHandle()));
+        if (userHandle != null && !userHandle.isBlank()) {
+            responseBuilder.userHandle(Bytes.fromBase64(userHandle));
         }
 
         return PublicKeyCredential.<AuthenticatorAssertionResponse>builder()
-                .id(req.id())
-                .rawId(Bytes.fromBase64(req.rawId()))
+                .id(id)
+                .rawId(Bytes.fromBase64(rawId))
                 .type(PublicKeyCredentialType.PUBLIC_KEY)
                 .response(responseBuilder.build())
                 .build();

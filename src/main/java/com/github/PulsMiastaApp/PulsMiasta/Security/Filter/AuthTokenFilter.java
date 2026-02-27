@@ -2,6 +2,7 @@ package com.github.PulsMiastaApp.PulsMiasta.Security.Filter;
 
 import com.github.PulsMiastaApp.PulsMiasta.Repository.UserRepository;
 import com.github.PulsMiastaApp.PulsMiasta.Security.Model.AuthPrincipal;
+import com.github.PulsMiastaApp.PulsMiasta.Security.Service.AuthResult;
 import com.github.PulsMiastaApp.PulsMiasta.Security.Service.TokenService;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -99,11 +100,33 @@ public class AuthTokenFilter extends OncePerRequestFilter {
         response.addCookie(cookie);
     }
 
-    private Optional<String> extractCookie(HttpServletRequest request, String name) {
+    /**
+     * Extracts a cookie value by name. Returns {@link Optional#empty()} when the cookie jar is
+     * absent or the named cookie is not present.
+     */
+    public static Optional<String> extractCookie(HttpServletRequest request, String name) {
         if (request.getCookies() == null) return Optional.empty();
         return Arrays.stream(request.getCookies())
                 .filter(c -> name.equals(c.getName()))
                 .map(Cookie::getValue)
                 .findFirst();
+    }
+
+    /**
+     * Sets the session cookie and, when requested, the remember-me cookie on the response.
+     *
+     * @param isMobile {@code true} when the client is a mobile app (longer remember-me TTL)
+     */
+    public static void applyAuthCookies(HttpServletResponse response, AuthResult result,
+                                        boolean rememberMe, boolean isMobile,
+                                        long sessionTtlMinutes, long rememberMeWebDays,
+                                        long rememberMeMobileDays) {
+        addCookie(response, SESSION_COOKIE_NAME, result.sessionToken(),
+                (int) (sessionTtlMinutes * 60));
+        if (rememberMe && result.rememberMeToken() != null) {
+            long days = isMobile ? rememberMeMobileDays : rememberMeWebDays;
+            addCookie(response, REMEMBER_ME_COOKIE_NAME, result.rememberMeToken(),
+                    (int) (days * 24 * 60 * 60));
+        }
     }
 }

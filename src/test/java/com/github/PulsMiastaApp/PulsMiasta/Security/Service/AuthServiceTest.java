@@ -2,11 +2,13 @@ package com.github.PulsMiastaApp.PulsMiasta.Security.Service;
 
 import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.ClientType;
 import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.LoginRequest;
+import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.LoginResult;
 import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.RegisterRequest;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.User;
 import com.github.PulsMiastaApp.PulsMiasta.Repository.UserRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -33,6 +35,12 @@ class AuthServiceTest {
     @Mock
     private PasswordEncoder passwordEncoder;
 
+    @Mock
+    private EmailVerificationService emailVerificationService;
+
+    @Mock
+    private TwoFactorPendingService twoFactorPendingService;
+
     @InjectMocks
     private AuthService authService;
 
@@ -42,17 +50,27 @@ class AuthServiceTest {
 
         when(userRepository.existsByEmail("jan@example.com")).thenReturn(false);
         when(passwordEncoder.encode("password123")).thenReturn("hashed-password");
+        when(userRepository.save(any(User.class))).thenAnswer(invocation -> {
+            User user = invocation.getArgument(0);
+            user.setId(1L);
+            return user;
+        });
         when(tokenService.createSession(any(Long.class))).thenReturn("session-token-uuid");
+        doNothing().when(emailVerificationService).sendVerificationEmail(any(User.class));
 
         AuthResult result = authService.register(request);
 
-        verify(userRepository).save(argThat(user ->
-                user.getPasswordHash().equals("hashed-password") &&
-                        user.getFirstName().equals("Jan") &&
-                        user.getLastName().equals("Kowalski") &&
-                        user.getEmail().equals("jan@example.com") &&
-                        user.getRole().equals("USER")
-        ));
+        ArgumentCaptor<User> userCaptor = ArgumentCaptor.forClass(User.class);
+        verify(userRepository).save(userCaptor.capture());
+        User savedUser = userCaptor.getValue();
+
+        assertThat(savedUser.getPasswordHash()).isEqualTo("hashed-password");
+        assertThat(savedUser.getFirstName()).isEqualTo("Jan");
+        assertThat(savedUser.getLastName()).isEqualTo("Kowalski");
+        assertThat(savedUser.getEmail()).isEqualTo("jan@example.com");
+        assertThat(savedUser.getRole()).isEqualTo("USER");
+
+        verify(emailVerificationService).sendVerificationEmail(any(User.class));
         assertThat(result.sessionToken()).isEqualTo("session-token-uuid");
         assertThat(result.rememberMeToken()).isNull();
     }
@@ -65,7 +83,7 @@ class AuthServiceTest {
 
         assertThatThrownBy(() -> authService.register(request))
                 .isInstanceOf(ResponseStatusException.class)
-                .hasMessage("Email already in use");
+                .hasMessageContaining("Email already in use");
     }
 
     @Test
@@ -74,11 +92,18 @@ class AuthServiceTest {
 
         when(userRepository.existsByEmail("jan@example.com")).thenReturn(false);
         when(passwordEncoder.encode("password123")).thenReturn("hashed-password");
+        when(userRepository.save(any(User.class))).thenAnswer(invocation -> {
+            User user = invocation.getArgument(0);
+            user.setId(1L);
+            return user;
+        });
         when(tokenService.createSession(any(Long.class))).thenReturn("session-token");
         when(tokenService.createRememberMeToken(any(Long.class), eq(ClientType.MOBILE))).thenReturn("remember-token");
+        doNothing().when(emailVerificationService).sendVerificationEmail(any(User.class));
 
         AuthResult result = authService.register(request);
 
+        verify(emailVerificationService).sendVerificationEmail(any(User.class));
         assertThat(result.rememberMeToken()).isEqualTo("remember-token");
     }
 
@@ -96,10 +121,12 @@ class AuthServiceTest {
         when(passwordEncoder.matches("password123", "hashed-password")).thenReturn(true);
         when(tokenService.createSession(1L)).thenReturn("session-token");
 
-        AuthResult result = authService.login(request);
+        LoginResult result = authService.login(request);
 
-        assertThat(result.sessionToken()).isEqualTo("session-token");
-        assertThat(result.rememberMeToken()).isNull();
+        assertThat(result).isInstanceOf(LoginResult.SessionGranted.class);
+        LoginResult.SessionGranted granted = (LoginResult.SessionGranted) result;
+        assertThat(granted.sessionToken()).isEqualTo("session-token");
+        assertThat(granted.rememberMeToken()).isNull();
     }
 
     @Test
@@ -117,9 +144,10 @@ class AuthServiceTest {
         when(tokenService.createSession(2L)).thenReturn("session-token");
         when(tokenService.createRememberMeToken(2L, ClientType.MOBILE)).thenReturn("remember-token");
 
-        AuthResult result = authService.login(request);
+        LoginResult result = authService.login(request);
 
-        assertThat(result.rememberMeToken()).isEqualTo("remember-token");
+        assertThat(result).isInstanceOf(LoginResult.SessionGranted.class);
+        assertThat(((LoginResult.SessionGranted) result).rememberMeToken()).isEqualTo("remember-token");
     }
 
     @Test
@@ -137,7 +165,7 @@ class AuthServiceTest {
 
         assertThatThrownBy(() -> authService.login(request))
                 .isInstanceOf(ResponseStatusException.class)
-                .hasMessage("Invalid credentials");
+                .hasMessageContaining("Invalid credentials");
     }
 
     @Test
@@ -148,7 +176,7 @@ class AuthServiceTest {
 
         assertThatThrownBy(() -> authService.login(request))
                 .isInstanceOf(ResponseStatusException.class)
-                .hasMessage("Invalid credentials");
+                .hasMessageContaining("Invalid credentials");
     }
 
     @Test
@@ -171,7 +199,7 @@ class AuthServiceTest {
 
         assertThatThrownBy(() -> authService.findByEmail("nonexistent@example.com"))
                 .isInstanceOf(ResponseStatusException.class)
-                .hasMessage("Invalid credentials");
+                .hasMessageContaining("Invalid credentials");
     }
 
     @Test

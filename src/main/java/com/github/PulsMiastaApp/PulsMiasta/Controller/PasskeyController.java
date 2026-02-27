@@ -1,5 +1,6 @@
 package com.github.PulsMiastaApp.PulsMiasta.Controller;
 
+import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.ClientType;
 import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.SuccessResponse;
 import com.github.PulsMiastaApp.PulsMiasta.Repository.UserRepository;
 import com.github.PulsMiastaApp.PulsMiasta.Security.Annotation.RequireSudoMode;
@@ -95,7 +96,8 @@ public class PasskeyController {
 
         // Use the current session token as the ceremony session key so it is
         // cryptographically bound to the authenticated session without an extra round-trip.
-        String sessionKey = extractSessionKey(request);
+        String sessionKey = AuthTokenFilter.extractCookie(request, AuthTokenFilter.SESSION_COOKIE_NAME)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "No session cookie"));
 
         var user = userRepository.findById(principal.id())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User not found"));
@@ -171,7 +173,9 @@ public class PasskeyController {
             HttpServletResponse response) {
 
         AuthResult result = webAuthnService.finishAuthentication(request);
-        applyAuthCookies(response, result, request.rememberMe(), request.clientType());
+        AuthTokenFilter.applyAuthCookies(response, result, request.rememberMe(),
+                request.clientType() == ClientType.MOBILE,
+                sessionTtlMinutes, rememberMeWebDays, rememberMeMobileDays);
 
         return ResponseEntity.ok(SuccessResponse.of("Logged in successfully"));
     }
@@ -222,37 +226,6 @@ public class PasskeyController {
     private void requireAuthenticated(AuthPrincipal principal) {
         if (principal == null) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication required");
-        }
-    }
-
-    /**
-     * Extracts the raw session token from the request cookie.
-     * This value is used as the ceremony session key so it is bound to the active session.
-     */
-    private String extractSessionKey(HttpServletRequest request) {
-        if (request.getCookies() == null) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "No session cookie");
-        }
-        for (var cookie : request.getCookies()) {
-            if (AuthTokenFilter.SESSION_COOKIE_NAME.equals(cookie.getName())) {
-                return cookie.getValue();
-            }
-        }
-        throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "No session cookie");
-    }
-
-    private void applyAuthCookies(HttpServletResponse response, AuthResult result,
-                                  boolean rememberMe, com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.ClientType clientType) {
-        int sessionMaxAge = (int) (sessionTtlMinutes * 60);
-        AuthTokenFilter.addCookie(response, AuthTokenFilter.SESSION_COOKIE_NAME,
-                result.sessionToken(), sessionMaxAge);
-
-        if (rememberMe && result.rememberMeToken() != null) {
-            long days = clientType == com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.ClientType.MOBILE
-                    ? rememberMeMobileDays : rememberMeWebDays;
-            int rememberMaxAge = (int) (days * 24 * 60 * 60);
-            AuthTokenFilter.addCookie(response, AuthTokenFilter.REMEMBER_ME_COOKIE_NAME,
-                    result.rememberMeToken(), rememberMaxAge);
         }
     }
 }

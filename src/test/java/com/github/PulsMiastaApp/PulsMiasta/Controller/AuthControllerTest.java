@@ -3,6 +3,7 @@ package com.github.PulsMiastaApp.PulsMiasta.Controller;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.ClientType;
 import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.LoginRequest;
+import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.LoginResult;
 import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.RegisterRequest;
 import com.github.PulsMiastaApp.PulsMiasta.Security.Service.AuthResult;
 import com.github.PulsMiastaApp.PulsMiasta.Security.Service.AuthService;
@@ -70,9 +71,8 @@ class AuthControllerTest {
     @Test
     void login_shouldReturn200AndSetCookies() throws Exception {
         LoginRequest request = new LoginRequest("jan@example.com", "password123", false, ClientType.WEB);
-        AuthResult authResult = new AuthResult("session-uuid", null);
 
-        when(authService.login(request)).thenReturn(authResult);
+        when(authService.login(request)).thenReturn(new LoginResult.SessionGranted("session-uuid", null));
 
         mockMvc.perform(MockMvcRequestBuilders.post("/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)

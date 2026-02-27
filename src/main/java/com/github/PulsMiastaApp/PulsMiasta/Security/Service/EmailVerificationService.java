@@ -11,6 +11,7 @@ import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.http.HttpStatus;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -49,10 +50,7 @@ public class EmailVerificationService {
         this.mailFrom = mailFrom;
     }
 
-    /**
-     * Generates a verification token, stores it in Redis, and sends a verification email.
-     * Failures are logged but do not propagate — registration succeeds regardless.
-     */
+    @Async
     public void sendVerificationEmail(User user) {
         String token = UUID.randomUUID().toString();
         redisTemplate.opsForValue().set(EMAIL_VERIFY_PREFIX + token, user.getId(), tokenTtl);
@@ -65,11 +63,6 @@ public class EmailVerificationService {
         }
     }
 
-    /**
-     * Validates the token and marks the user's email as verified.
-     *
-     * @throws ResponseStatusException 400 if token is invalid or expired, 404 if user not found
-     */
     public void verifyToken(String token) {
         Long userId = redisTemplate.opsForValue().get(EMAIL_VERIFY_PREFIX + token);
         if (userId == null) {

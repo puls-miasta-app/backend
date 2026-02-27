@@ -5,7 +5,6 @@ import com.github.PulsMiastaApp.PulsMiasta.Security.Service.SudoModeService;
 import jakarta.servlet.Filter;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
-import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -18,7 +17,6 @@ import org.springframework.web.servlet.HandlerExceptionResolver;
 import org.springframework.web.servlet.HandlerMapping;
 
 import java.io.IOException;
-import java.util.Arrays;
 import java.util.Optional;
 
 @Component
@@ -51,7 +49,7 @@ public class SudoModeFilter implements Filter {
                     return;
                 }
 
-                Optional<String> sessionToken = extractCookie(httpRequest, AuthTokenFilter.SESSION_COOKIE_NAME);
+                Optional<String> sessionToken = AuthTokenFilter.extractCookie(httpRequest, AuthTokenFilter.SESSION_COOKIE_NAME);
                 if (sessionToken.isEmpty()) {
                     handlerExceptionResolver.resolveException(httpRequest, httpResponse, null,
                             new org.springframework.web.server.ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication required"));
@@ -67,13 +65,5 @@ public class SudoModeFilter implements Filter {
         }
 
         chain.doFilter(request, response);
-    }
-
-    private Optional<String> extractCookie(HttpServletRequest request, String name) {
-        if (request.getCookies() == null) return Optional.empty();
-        return Arrays.stream(request.getCookies())
-                .filter(c -> name.equals(c.getName()))
-                .map(Cookie::getValue)
-                .findFirst();
     }
 }

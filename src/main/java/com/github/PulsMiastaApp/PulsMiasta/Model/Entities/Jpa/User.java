@@ -48,6 +48,21 @@ public class User {
     private byte[] webauthnUserHandle;
 
     /**
+     * TOTP (Time-based One-Time Password) shared secret in Base32 encoding.
+     * Null when TOTP has not been configured for this account.
+     */
+    @Column(name = "totp_secret", nullable = true, length = 100)
+    private String totpSecret;
+
+    /**
+     * Whether TOTP 2FA is active for this account.
+     * When true: login requires a TOTP code in addition to password.
+     * Mandatory for ADMIN role; optional for USER role.
+     */
+    @Column(name = "totp_enabled", nullable = false)
+    private boolean totpEnabled = false;
+
+    /**
      * Ensures a webauthnUserHandle is assigned. Call before any WebAuthn ceremony.
      * Idempotent — safe to call multiple times.
      */
