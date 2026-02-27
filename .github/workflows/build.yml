@@ -28,6 +28,7 @@ jobs:
             backend:
               - "backend/**"
               - ".github/workflows/build.yml"
+          root: .
 
       - name: Check for changes
         id: change_status
