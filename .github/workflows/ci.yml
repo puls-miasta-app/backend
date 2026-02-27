@@ -12,20 +12,26 @@ permissions:
   pull-requests: read
 
 jobs:
-  backend:
+  build-test:
     runs-on: ubuntu-latest
-    defaults:
-      run:
+
     steps:
-      - uses: actions/checkout@v4
+      # --- Checkout repo ---
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # --- Detect changes ---
       - name: Detect changes
         id: changes
         uses: dorny/paths-filter@v3
         with:
           filters: |
-            backend:
+            project:
               - "**"
               - ".github/workflows/ci.yml"
+          root: .
+
+      # --- Check for changes ---
       - name: Check for changes
         id: change_status
         run: |
@@ -35,18 +41,38 @@ jobs:
             echo "changed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+
+      # --- Setup Java & Maven cache ---
       - uses: actions/setup-java@v4
         if: steps.change_status.outputs.changed == 'true'
         with:
           distribution: temurin
           java-version: '17'
           cache: maven
+
+      # --- Run Maven tests ---
       - name: Prepare test config and run tests
-        shell: bash
         if: steps.change_status.outputs.changed == 'true'
         run: |
+          # Zamiana pliku konfiguracyjnego testowego
           mv src/main/resources/application.properties.test src/main/resources/application.properties
+
+          # Załaduj zmienne środowiskowe z .env.test
           set -a
           source .env.test
           set +a
+
+          # Uruchom Maven verify
           ./mvnw -B verify
+
+      # --- Build Docker image (lokalnie, bez push) ---
+      - name: Build Docker image
+        if: steps.change_status.outputs.changed == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: false
+          tags: test-image:latest
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,scope=api,mode=max

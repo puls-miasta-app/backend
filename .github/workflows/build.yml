@@ -1,35 +1,39 @@
-name: Deploy to production
+name: Build and Test
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+  pull_request:
+    paths:
+      - '**'
+      - '.github/workflows/build.yml'
 
 permissions:
   contents: read
-  packages: write
-
-concurrency:
-  group: deploy-production
-  cancel-in-progress: false
+  pull-requests: read
 
 jobs:
-  build-push-deploy:
+  build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      # --- Checkout repo ---
+      - name: Checkout repository
         uses: actions/checkout@v4
 
+      # --- Detect changes ---
       - name: Detect changes
         id: changes
         uses: dorny/paths-filter@v3
         with:
           filters: |
-            backend:
-              - "backend/**"
+            project:
+              - "**"
               - ".github/workflows/build.yml"
           root: .
 
+      # --- Check for changes ---
       - name: Check for changes
         id: change_status
         run: |
@@ -40,84 +44,32 @@ jobs:
             exit 0
           fi
 
-      - name: Set up Buildx
+      # --- Setup Java & Maven cache ---
+      - uses: actions/setup-java@v4
         if: steps.change_status.outputs.changed == 'true'
-        uses: docker/setup-buildx-action@v3
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
 
-      - name: Log in to GHCR
+      # --- Run Maven tests ---
+      - name: Prepare test config and run tests
         if: steps.change_status.outputs.changed == 'true'
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mv src/main/resources/application.properties.test src/main/resources/application.properties
+          set -a
+          source .env.test
+          set +a
+          ./mvnw -B verify
 
-      # ---- API image ----
-      - name: Cache Maven
-        uses: actions/cache@v4
-        if: steps.changes.outputs.backend == 'true'
-        with:
-          path: ~/.m2/repository
-          key: ${{ runner.os }}-maven-magazyn-${{ hashFiles('backend/**/pom.xml') }}
-          restore-keys: |
-            ${{ runner.os }}-maven-magazyn-
-
-      - name: API image metadata
-        id: meta_api
-        uses: docker/metadata-action@v5
-        if: steps.changes.outputs.backend == 'true'
-        with:
-          images: ghcr.io/1zuwi1/magazyn-api
-          tags: |
-            type=raw,value=latest
-            type=sha
-
-      - name: Build and push API image
+      # --- Build Docker image (lokalnie, bez push) ---
+      - name: Build Docker image
+        if: steps.change_status.outputs.changed == 'true'
         uses: docker/build-push-action@v6
-        if: steps.changes.outputs.backend == 'true'
         with:
           context: .
           file: ./Dockerfile
-          push: true
-          tags: ${{ steps.meta_api.outputs.tags }}
-          labels: ${{ steps.meta_api.outputs.labels }}
+          push: false
+          tags: build-test:latest
           cache-from: type=gha,scope=api
           cache-to: type=gha,scope=api,mode=max
-
-      # ---- DEPLOY on server ----
-      - name: SSH deploy (pull + restart)
-        if: steps.change_status.outputs.changed == 'true'
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          port: ${{ secrets.SSH_PORT || '22' }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          script_stop: true
-          script: |
-            set -euo pipefail
-
-            COMPOSE_DIR="${{ secrets.COMPOSE_PROJECT_DIR }}"
-            if [ -z "${COMPOSE_DIR}" ]; then
-              COMPOSE_DIR="$HOME/magazyn"
-            fi
-
-            cd "$COMPOSE_DIR"
-
-            # Auth for GHCR pulls (server-side)
-            AUTH="$(printf '%s:%s' "${{ secrets.GHCR_USERNAME }}" "${{ secrets.GHCR_PAT }}" | base64 | tr -d '\n')"
-            export DOCKER_AUTH_CONFIG="{\"auths\":{\"ghcr.io\":{\"auth\":\"$AUTH\"}}}"
-
-            SERVICES=()
-
-            if [[ "${{ steps.changes.outputs.project }}" == "true" ]]; then
-              SERVICES+=("api")
-            fi
-
-            if [ "${#SERVICES[@]}" -gt 0 ]; then
-              docker compose pull "${SERVICES[@]}"
-              docker compose up -d --remove-orphans --force-recreate "${SERVICES[@]}"
-            fi
-            docker image prune -f
-
-            unset DOCKER_AUTH_CONFIG
