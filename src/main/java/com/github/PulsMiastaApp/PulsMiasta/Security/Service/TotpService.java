@@ -27,7 +27,8 @@ import java.time.Duration;
  * minor clock drift between server and client device.
  * <p>
  * Includes replay protection: tracks recently used codes to prevent reuse
- * within the same time window.
+ * within the same time window. Codes are blocked for 5 minutes to cover
+ * the 3-time-step window (90 seconds) with buffer for clock drift.
  */
 @Slf4j
 @Service
@@ -36,7 +37,7 @@ public class TotpService {
     private static final String ISSUER = "PulsMiasta";
     private static final int SECRET_LENGTH = 32;
     private static final String USED_CODE_PREFIX = "totp_used:";
-    private static final long USED_CODE_TTL_MINUTES = 2;
+    private static final long USED_CODE_TTL_MINUTES = 5;
 
     private final SecretGenerator secretGenerator;
     private final CodeVerifier codeVerifier;

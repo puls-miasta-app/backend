@@ -27,6 +27,16 @@ public class LoginAttemptService {
             @Value("${auth.login.max-attempts:5}") int maxAttempts,
             @Value("${auth.login.lockout-minutes:30}") long lockoutMinutes,
             @Value("${auth.login.attempts-ttl-minutes:15}") long attemptsTtlMinutes) {
+        if (maxAttempts <= 0) {
+            throw new IllegalArgumentException("auth.login.max-attempts must be greater than 0");
+        }
+        if (lockoutMinutes <= 0) {
+            throw new IllegalArgumentException("auth.login.lockout-minutes must be greater than 0");
+        }
+        if (attemptsTtlMinutes <= 0) {
+            throw new IllegalArgumentException("auth.login.attempts-ttl-minutes must be greater than 0");
+        }
+
         this.redisTemplate = redisTemplate;
         this.maxAttempts = maxAttempts;
         this.lockoutDuration = Duration.ofMinutes(lockoutMinutes);

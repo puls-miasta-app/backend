@@ -21,9 +21,18 @@ public class RateLimitService {
     private final int defaultLimit;
     private final Duration defaultWindow;
 
+    private final Object lockObject = new Object();
+
     public RateLimitService(
             @Value("${auth.rate-limit.default-limit:10}") int defaultLimit,
             @Value("${auth.rate-limit.default-window-seconds:60}") long defaultWindowSeconds) {
+        if (defaultLimit <= 0) {
+            throw new IllegalArgumentException("auth.rate-limit.default-limit must be greater than 0");
+        }
+        if (defaultWindowSeconds <= 0) {
+            throw new IllegalArgumentException("auth.rate-limit.default-window-seconds must be greater than 0");
+        }
+
         this.defaultLimit = defaultLimit;
         this.defaultWindow = Duration.ofSeconds(defaultWindowSeconds);
 
@@ -36,7 +45,8 @@ public class RateLimitService {
     /**
      * Checks if a request should be rate limited based on client's IP address.
      * <p>
-     * Uses atomic cache operations to prevent race conditions in concurrent requests.
+     * Uses synchronized cache operations to prevent race conditions in concurrent requests.
+     * The check and increment are performed atomically to ensure rate limits are enforced correctly.
      *
      * @param request HTTP request
      * @param limit   maximum number of requests allowed in window
@@ -48,13 +58,15 @@ public class RateLimitService {
 
         RateLimitEntry entry = cache.asMap().computeIfAbsent(key, k -> new RateLimitEntry(window));
 
-        if (entry.getCount() >= limit) {
-            long remainingSeconds = window.getSeconds() - entry.getAgeSeconds();
-            throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,
-                    String.format("Rate limit exceeded. Please try again in %d seconds.", remainingSeconds));
-        }
+        synchronized (entry) {
+            if (entry.getCount() >= limit) {
+                long remainingSeconds = window.getSeconds() - entry.getAgeSeconds();
+                throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,
+                        String.format("Rate limit exceeded. Please try again in %d seconds.", remainingSeconds));
+            }
 
-        entry.increment();
+            entry.increment();
+        }
     }
 
     /**

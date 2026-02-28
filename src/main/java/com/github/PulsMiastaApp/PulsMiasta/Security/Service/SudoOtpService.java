@@ -55,6 +55,16 @@ public class SudoOtpService {
             @Value("${auth.sudo-otp.max-attempts:3}") int maxAttempts,
             @Value("${app.mail.from}") String mailFrom
     ) {
+        if (ttlMinutes <= 0) {
+            throw new IllegalArgumentException("auth.sudo-otp.ttl-minutes must be greater than 0");
+        }
+        if (cooldownSeconds <= 0) {
+            throw new IllegalArgumentException("auth.sudo-otp.cooldown-seconds must be greater than 0");
+        }
+        if (maxAttempts <= 0) {
+            throw new IllegalArgumentException("auth.sudo-otp.max-attempts must be greater than 0");
+        }
+
         this.mailSender = mailSender;
         this.redisTemplate = redisTemplate;
         this.otpTtl = Duration.ofMinutes(ttlMinutes);
