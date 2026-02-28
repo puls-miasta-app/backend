@@ -1,31 +1,47 @@
 package com.github.PulsMiastaApp.PulsMiasta.Security.Service;
 
-import com.github.benmanes.caffeine.cache.Cache;
-import com.github.benmanes.caffeine.cache.Caffeine;
-import com.github.benmanes.caffeine.cache.Expiry;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Duration;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 @Slf4j
 @Service
 public class RateLimitService {
 
-    private final Cache<String, RateLimitEntry> cache;
+    private static final String RATE_LIMIT_PREFIX = "rate_limit:";
+
+    /**
+     * Atomically increments the counter and sets TTL only on the first increment.
+     * Prevents the race condition where the key could be left without an expiry
+     * if the process crashes between INCR and EXPIRE.
+     */
+    private static final RedisScript<Long> INCR_WITH_EXPIRE = RedisScript.of(
+            "local count = redis.call('INCR', KEYS[1])\n" +
+                    "if count == 1 then\n" +
+                    "  redis.call('EXPIRE', KEYS[1], ARGV[1])\n" +
+                    "end\n" +
+                    "return count",
+            Long.class);
+
+    private final StringRedisTemplate redisTemplate;
     private final int defaultLimit;
     private final Duration defaultWindow;
-
-    private final Object lockObject = new Object();
+    private final List<String> trustedProxies;
 
     public RateLimitService(
+            StringRedisTemplate redisTemplate,
             @Value("${auth.rate-limit.default-limit:10}") int defaultLimit,
-            @Value("${auth.rate-limit.default-window-seconds:60}") long defaultWindowSeconds) {
+            @Value("${auth.rate-limit.default-window-seconds:60}") long defaultWindowSeconds,
+            @Value("${auth.rate-limit.trusted-proxies:}") String trustedProxiesCsv) {
         if (defaultLimit <= 0) {
             throw new IllegalArgumentException("auth.rate-limit.default-limit must be greater than 0");
         }
@@ -33,20 +49,19 @@ public class RateLimitService {
             throw new IllegalArgumentException("auth.rate-limit.default-window-seconds must be greater than 0");
         }
 
+        this.redisTemplate = redisTemplate;
         this.defaultLimit = defaultLimit;
         this.defaultWindow = Duration.ofSeconds(defaultWindowSeconds);
-
-        this.cache = Caffeine.newBuilder()
-                .maximumSize(10_000)
-                .expireAfter(new ExpireAfterWindowExpiry())
-                .build();
+        this.trustedProxies = parseTrustedProxies(trustedProxiesCsv);
     }
 
     /**
      * Checks if a request should be rate limited based on client's IP address.
      * <p>
-     * Uses synchronized cache operations to prevent race conditions in concurrent requests.
-     * The check and increment are performed atomically to ensure rate limits are enforced correctly.
+     * Uses an atomic Lua script to increment the counter and set TTL in a single
+     * Redis round-trip, preventing the race condition that could leave keys without expiry.
+     * The remaining time shown in the error is read from the actual Redis TTL instead
+     * of approximating the full window duration.
      *
      * @param request HTTP request
      * @param limit   maximum number of requests allowed in window
@@ -54,18 +69,17 @@ public class RateLimitService {
      * @throws ResponseStatusException 429 (Too Many Requests) if rate limit is exceeded
      */
     public void checkRateLimit(HttpServletRequest request, int limit, Duration window) {
-        String key = getRateLimitKey(request);
+        String ip = getTrustedClientIp(request);
+        String normalizedUri = normalizeUri(request.getRequestURI());
+        String key = RATE_LIMIT_PREFIX + ip + ":" + normalizedUri;
 
-        RateLimitEntry entry = cache.asMap().computeIfAbsent(key, k -> new RateLimitEntry(window));
+        Long count = redisTemplate.execute(INCR_WITH_EXPIRE, List.of(key), String.valueOf(window.getSeconds()));
 
-        synchronized (entry) {
-            if (entry.getCount() >= limit) {
-                long remainingSeconds = window.getSeconds() - entry.getAgeSeconds();
-                throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,
-                        String.format("Rate limit exceeded. Please try again in %d seconds.", remainingSeconds));
-            }
-
-            entry.increment();
+        if (count != null && count > limit) {
+            long ttlSeconds = redisTemplate.getExpire(key, TimeUnit.SECONDS);
+            long remainingMinutes = Math.max(1, (long) Math.ceil(ttlSeconds / 60.0));
+            throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,
+                    String.format("Rate limit exceeded. Please try again in %d minutes.", remainingMinutes));
         }
     }
 
@@ -78,68 +92,81 @@ public class RateLimitService {
         checkRateLimit(request, defaultLimit, defaultWindow);
     }
 
-    private String getRateLimitKey(HttpServletRequest request) {
-        String ip = getClientIp(request);
-        String uri = request.getRequestURI();
-        return ip + ":" + uri;
+    /**
+     * Returns the trusted client IP address for the given request.
+     * Exposed so that other services (e.g. LoginAttemptService via AuthService)
+     * can scope their per-resource operations to the same resolved IP.
+     *
+     * @param request HTTP request
+     * @return resolved client IP
+     */
+    public String getClientIp(HttpServletRequest request) {
+        return getTrustedClientIp(request);
     }
 
-    private String getClientIp(HttpServletRequest request) {
-        String ip = request.getHeader("X-Forwarded-For");
-        if (ip == null || ip.isEmpty()) {
-            ip = request.getHeader("X-Real-IP");
+    /**
+     * Extracts the client IP address, validating proxy headers against trusted proxies.
+     * Only trusts X-Forwarded-For and X-Real-IP from configured trusted proxies.
+     * Prevents IP spoofing attacks where attackers set these headers to lock out victims.
+     *
+     * @param request HTTP request
+     * @return validated client IP address
+     */
+    private String getTrustedClientIp(HttpServletRequest request) {
+        String remoteAddr = request.getRemoteAddr();
+
+        if (remoteAddr == null || remoteAddr.isEmpty()) {
+            return "unknown";
         }
-        if (ip == null || ip.isEmpty()) {
-            ip = request.getRemoteAddr();
+
+        for (String trustedProxy : trustedProxies) {
+            if (remoteAddr.equals(trustedProxy)) {
+                String forwardedFor = request.getHeader("X-Forwarded-For");
+                if (forwardedFor != null && !forwardedFor.isEmpty()) {
+                    if (forwardedFor.contains(",")) {
+                        return forwardedFor.split(",")[0].trim();
+                    }
+                    return forwardedFor.trim();
+                }
+
+                String realIp = request.getHeader("X-Real-IP");
+                if (realIp != null && !realIp.isEmpty()) {
+                    if (realIp.contains(",")) {
+                        return realIp.split(",")[0].trim();
+                    }
+                    return realIp.trim();
+                }
+            }
         }
-        if (ip != null && ip.contains(",")) {
-            ip = ip.split(",")[0].trim();
+
+        if (remoteAddr.contains(",")) {
+            return remoteAddr.split(",")[0].trim();
         }
-        return ip;
+        return remoteAddr;
     }
 
-    private static class RateLimitEntry {
-        private final long createdAt;
-        private final Duration window;
-        private int count;
-
-        RateLimitEntry(Duration window) {
-            this.createdAt = System.currentTimeMillis();
-            this.window = window;
-            this.count = 0;
+    /**
+     * Normalizes the URI to prevent rate limit bypass through case variations or trailing slashes.
+     * Converts to lowercase and removes trailing slashes.
+     *
+     * @param uri the request URI
+     * @return normalized URI
+     */
+    private String normalizeUri(String uri) {
+        if (uri == null || uri.isEmpty()) {
+            return "/";
         }
-
-        synchronized void increment() {
-            count++;
-        }
-
-        int getCount() {
-            return count;
-        }
-
-        long getAgeSeconds() {
-            return (System.currentTimeMillis() - createdAt) / 1000;
-        }
-
-        boolean isExpired() {
-            return System.currentTimeMillis() - createdAt > window.toMillis();
-        }
+        return uri.toLowerCase().replaceAll("/+$", "");
     }
 
-    private static class ExpireAfterWindowExpiry implements Expiry<String, RateLimitEntry> {
-        @Override
-        public long expireAfterCreate(String key, RateLimitEntry value, long currentTime) {
-            return TimeUnit.MILLISECONDS.toNanos(value.window.toMillis());
+    private List<String> parseTrustedProxies(String csv) {
+        if (csv == null || csv.trim().isEmpty()) {
+            return List.of();
         }
-
-        @Override
-        public long expireAfterUpdate(String key, RateLimitEntry value, long currentTime, long currentDuration) {
-            return currentDuration;
-        }
-
-        @Override
-        public long expireAfterRead(String key, RateLimitEntry value, long currentTime, long currentDuration) {
-            return currentDuration;
-        }
+        return List.of(csv.split(","))
+                .stream()
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .toList();
     }
 }

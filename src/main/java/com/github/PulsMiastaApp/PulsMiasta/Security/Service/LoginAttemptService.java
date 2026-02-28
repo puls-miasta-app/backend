@@ -3,11 +3,13 @@ package com.github.PulsMiastaApp.PulsMiasta.Security.Service;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Duration;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 @Slf4j
@@ -16,6 +18,19 @@ public class LoginAttemptService {
 
     private static final String ATTEMPTS_PREFIX = "login_attempts:";
     private static final String LOCKOUT_PREFIX = "account_lockout:";
+
+    /**
+     * Atomically increments the counter and sets TTL only on the first increment.
+     * Prevents the race condition where the key could be left without an expiry
+     * if the process crashes between INCR and EXPIRE.
+     */
+    private static final RedisScript<Long> INCR_WITH_EXPIRE = RedisScript.of(
+            "local count = redis.call('INCR', KEYS[1])\n" +
+                    "if count == 1 then\n" +
+                    "  redis.call('EXPIRE', KEYS[1], ARGV[1])\n" +
+                    "end\n" +
+                    "return count",
+            Long.class);
 
     private final StringRedisTemplate redisTemplate;
     private final int maxAttempts;
@@ -44,60 +59,71 @@ public class LoginAttemptService {
     }
 
     /**
-     * Checks if an account is currently locked out due to too many failed login attempts.
+     * Checks whether the given IP is locked out for this specific email.
+     * <p>
+     * Lockout is intentionally scoped to the (IP, email) pair so that an attacker
+     * sending failed attempts from their own address cannot lock out the real owner
+     * logging in from a different IP. Each IP accumulates its own failed-attempt counter
+     * and its own lockout flag independently.
      *
-     * @param email the email address to check
-     * @throws ResponseStatusException 423 (Locked) if the account is locked out
+     * @param clientIp resolved client IP (from {@link RateLimitService#getClientIp})
+     * @param email    email address being authenticated
+     * @throws ResponseStatusException 423 (Locked) if this IP is locked out for this email
      */
-    public void checkLockout(String email) {
-        String lockoutKey = LOCKOUT_PREFIX + email;
+    public void checkLockout(String clientIp, String email) {
+        String lockoutKey = getLockoutKey(clientIp, email);
         if (Boolean.TRUE.equals(redisTemplate.hasKey(lockoutKey))) {
-            long remainingMinutes = redisTemplate.getExpire(lockoutKey, TimeUnit.MINUTES);
+            long ttlSeconds = redisTemplate.getExpire(lockoutKey, TimeUnit.SECONDS);
+            long remainingMinutes = Math.max(1, (long) Math.ceil(ttlSeconds / 60.0));
             throw new ResponseStatusException(HttpStatus.LOCKED,
-                    String.format("Account locked due to too many failed login attempts. " +
+                    String.format("Too many failed login attempts. " +
                             "Please try again in %d minutes.", remainingMinutes));
         }
     }
 
     /**
-     * Records a failed login attempt and locks the account if threshold is reached.
+     * Records a failed login attempt for the (IP, email) pair and locks the IP for that
+     * email once {@code maxAttempts} is reached.
      * <p>
-     * Uses Redis INCR for atomic increment to prevent race conditions in concurrent requests.
+     * Uses an atomic Lua script so the counter always carries a TTL, even under
+     * concurrent load or partial failure between INCR and EXPIRE.
      *
-     * @param email the email address for which the login attempt failed
+     * @param clientIp resolved client IP
+     * @param email    email address being authenticated
      */
-    public void recordFailedAttempt(String email) {
-        String attemptsKey = ATTEMPTS_PREFIX + email;
+    public void recordFailedAttempt(String clientIp, String email) {
+        String attemptsKey = getAttemptsKey(clientIp, email);
 
-        Long attempts = redisTemplate.opsForValue().increment(attemptsKey);
+        Long attempts = redisTemplate.execute(INCR_WITH_EXPIRE,
+                List.of(attemptsKey),
+                String.valueOf(attemptsTtl.getSeconds()));
 
-        if (attempts == 1) {
-            redisTemplate.expire(attemptsKey, attemptsTtl);
-        }
-
-        if (attempts >= maxAttempts) {
-            lockAccount(email);
-            log.warn("Account locked out due to too many failed attempts: email={}", email);
+        if (attempts != null && attempts >= maxAttempts) {
+            lockIpForEmail(clientIp, email);
+            log.warn("IP locked out for email due to too many failed attempts: ip={}, email={}", clientIp, email);
         }
     }
 
     /**
-     * Clears failed login attempts after a successful login.
+     * Clears the failed-attempt counter for this (IP, email) pair after a successful login.
      *
-     * @param email the email address to clear
+     * @param clientIp resolved client IP
+     * @param email    email address that just authenticated successfully
      */
-    public void clearAttempts(String email) {
-        redisTemplate.delete(ATTEMPTS_PREFIX + email);
+    public void clearAttempts(String clientIp, String email) {
+        redisTemplate.delete(getAttemptsKey(clientIp, email));
     }
 
-    /**
-     * Locks an account for the configured duration.
-     *
-     * @param email the email address to lock
-     */
-    private void lockAccount(String email) {
-        String lockoutKey = LOCKOUT_PREFIX + email;
-        redisTemplate.opsForValue().set(lockoutKey, "1", lockoutDuration);
-        redisTemplate.delete(ATTEMPTS_PREFIX + email);
+    private void lockIpForEmail(String clientIp, String email) {
+        redisTemplate.opsForValue().set(getLockoutKey(clientIp, email), "1", lockoutDuration);
+        redisTemplate.delete(getAttemptsKey(clientIp, email));
+    }
+
+    private String getAttemptsKey(String clientIp, String email) {
+        return ATTEMPTS_PREFIX + clientIp + ":" + email;
+    }
+
+    private String getLockoutKey(String clientIp, String email) {
+        return LOCKOUT_PREFIX + clientIp + ":" + email;
     }
 }

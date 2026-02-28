@@ -18,6 +18,8 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -72,7 +74,7 @@ class AuthControllerTest {
     void login_shouldReturn200AndSetCookies() throws Exception {
         LoginRequest request = new LoginRequest("jan@example.com", "password123", false, ClientType.WEB);
 
-        when(authService.login(request)).thenReturn(new LoginResult.SessionGranted("session-uuid", null));
+        when(authService.login(eq(request), any(String.class))).thenReturn(new LoginResult.SessionGranted("session-uuid", null));
 
         mockMvc.perform(MockMvcRequestBuilders.post("/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)

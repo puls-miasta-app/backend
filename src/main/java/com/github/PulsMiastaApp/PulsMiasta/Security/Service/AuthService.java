@@ -50,21 +50,25 @@ public class AuthService {
      * <p>
      * Performs user lookup before lockout check to prevent email enumeration attacks.
      * Uses consistent error messages to avoid leaking information about account existence.
+     * <p>
+     * Lockout is scoped to the (clientIp, email) pair so that an attacker sending requests
+     * from their own IP cannot lock out the legitimate owner logging in from a different IP.
      *
-     * @param request login credentials
+     * @param request  login credentials
+     * @param clientIp resolved client IP from {@link RateLimitService#getClientIp}
      * @return {@link LoginResult} — either a full session or a pending 2FA token
      */
-    public LoginResult login(LoginRequest request) {
+    public LoginResult login(LoginRequest request, String clientIp) {
         User user = userRepository.findByEmail(request.email()).orElse(null);
 
         if (user == null) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials");
         }
 
-        loginAttemptService.checkLockout(request.email());
+        loginAttemptService.checkLockout(clientIp, request.email());
 
         if (!passwordEncoder.matches(request.password(), user.getPasswordHash())) {
-            loginAttemptService.recordFailedAttempt(request.email());
+            loginAttemptService.recordFailedAttempt(clientIp, request.email());
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials");
         }
 
@@ -72,7 +76,7 @@ public class AuthService {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Email must be verified before login");
         }
 
-        loginAttemptService.clearAttempts(request.email());
+        loginAttemptService.clearAttempts(clientIp, request.email());
 
         boolean requiresTwoFactor = user.isTotpEnabled() || "ADMIN".equals(user.getRole());
         if (requiresTwoFactor) {

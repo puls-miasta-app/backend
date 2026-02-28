@@ -15,7 +15,10 @@ import org.springframework.stereotype.Service;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
+import java.util.HexFormat;
 
 /**
  * Provides TOTP (Time-based One-Time Password, RFC 6238) operations.
@@ -111,13 +114,25 @@ public class TotpService {
         return true;
     }
 
+    private String hashSecret(String secret) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(secret.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(hash);
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 algorithm not available", e);
+        }
+    }
+
     private boolean isCodeUsed(String secret, String code) {
-        String key = USED_CODE_PREFIX + secret + ":" + code;
+        String hashedSecret = hashSecret(secret);
+        String key = USED_CODE_PREFIX + hashedSecret + ":" + code;
         return Boolean.TRUE.equals(redisTemplate.hasKey(key));
     }
 
     private void markCodeAsUsed(String secret, String code) {
-        String key = USED_CODE_PREFIX + secret + ":" + code;
+        String hashedSecret = hashSecret(secret);
+        String key = USED_CODE_PREFIX + hashedSecret + ":" + code;
         redisTemplate.opsForValue().set(key, "1", Duration.ofMinutes(USED_CODE_TTL_MINUTES));
     }
 }

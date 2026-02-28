@@ -124,7 +124,8 @@ public class AuthController {
 
         rateLimitService.checkRateLimit(httpRequest, 5, Duration.ofMinutes(1));
 
-        LoginResult result = authService.login(request);
+        String clientIp = rateLimitService.getClientIp(httpRequest);
+        LoginResult result = authService.login(request, clientIp);
 
         return switch (result) {
             case LoginResult.SessionGranted granted -> {

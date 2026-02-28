@@ -2,7 +2,6 @@ package com.github.PulsMiastaApp.PulsMiasta.Security.Service;
 
 import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.ClientType;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.data.redis.core.script.RedisScript;
@@ -21,14 +20,14 @@ public class TokenService {
     private static final String REMEMBER_PREFIX = "remember:";
     private static final String RENEW_SESSION_SCRIPT =
             "local userId = redis.call('GET', KEYS[1])\n" +
-            "if userId == false then\n" +
-            "  return nil\n" +
-            "end\n" +
-            "local sessionToken = ARGV[1]\n" +
-            "local sessionKey = ARGV[2]\n" +
-            "local ttl = tonumber(ARGV[3])\n" +
-            "redis.call('SET', sessionKey, userId, 'EX', ttl)\n" +
-            "return sessionToken";
+                    "if userId == false then\n" +
+                    "  return nil\n" +
+                    "end\n" +
+                    "local sessionToken = ARGV[1]\n" +
+                    "local sessionKey = ARGV[2]\n" +
+                    "local ttl = tonumber(ARGV[3])\n" +
+                    "redis.call('SET', sessionKey, userId, 'EX', ttl)\n" +
+                    "return sessionToken";
 
     private final RedisTemplate<String, Long> redisTemplate;
     private final RedisScript<String> renewSessionScript;
