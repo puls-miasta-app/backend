@@ -42,10 +42,15 @@ public class TotpService {
     private final CodeVerifier codeVerifier;
     private final StringRedisTemplate redisTemplate;
 
-    @Autowired(required = false)
+    @Autowired
     public TotpService(StringRedisTemplate redisTemplate) {
         this.secretGenerator = new DefaultSecretGenerator(SECRET_LENGTH);
         this.redisTemplate = redisTemplate;
+
+        if (this.redisTemplate == null) {
+            throw new IllegalStateException("Redis is required for TOTP replay protection. " +
+                    "Please ensure Spring Data Redis is properly configured.");
+        }
 
         TimeProvider timeProvider = new SystemTimeProvider();
         CodeGenerator codeGenerator = new DefaultCodeGenerator();
@@ -92,7 +97,7 @@ public class TotpService {
      * @return {@code true} if the code is valid and not replayed
      */
     public boolean isValidCode(String secret, String code) {
-        if (redisTemplate != null && isCodeUsed(secret, code)) {
+        if (isCodeUsed(secret, code)) {
             log.debug("TOTP code replay detected for secret={}", secret);
             return false;
         }
@@ -101,9 +106,7 @@ public class TotpService {
             return false;
         }
 
-        if (redisTemplate != null) {
-            markCodeAsUsed(secret, code);
-        }
+        markCodeAsUsed(secret, code);
         return true;
     }
 

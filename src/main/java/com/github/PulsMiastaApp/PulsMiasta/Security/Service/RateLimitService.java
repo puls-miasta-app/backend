@@ -35,6 +35,8 @@ public class RateLimitService {
 
     /**
      * Checks if a request should be rate limited based on client's IP address.
+     * <p>
+     * Uses atomic cache operations to prevent race conditions in concurrent requests.
      *
      * @param request HTTP request
      * @param limit   maximum number of requests allowed in window
@@ -44,12 +46,7 @@ public class RateLimitService {
     public void checkRateLimit(HttpServletRequest request, int limit, Duration window) {
         String key = getRateLimitKey(request);
 
-        RateLimitEntry entry = cache.get(key, k -> new RateLimitEntry(window));
-
-        if (entry == null) {
-            entry = new RateLimitEntry(window);
-            cache.put(key, entry);
-        }
+        RateLimitEntry entry = cache.asMap().computeIfAbsent(key, k -> new RateLimitEntry(window));
 
         if (entry.getCount() >= limit) {
             long remainingSeconds = window.getSeconds() - entry.getAgeSeconds();

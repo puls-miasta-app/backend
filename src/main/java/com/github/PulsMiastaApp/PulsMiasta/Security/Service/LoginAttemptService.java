@@ -20,14 +20,17 @@ public class LoginAttemptService {
     private final StringRedisTemplate redisTemplate;
     private final int maxAttempts;
     private final Duration lockoutDuration;
+    private final Duration attemptsTtl;
 
     public LoginAttemptService(
             StringRedisTemplate redisTemplate,
             @Value("${auth.login.max-attempts:5}") int maxAttempts,
-            @Value("${auth.login.lockout-minutes:30}") long lockoutMinutes) {
+            @Value("${auth.login.lockout-minutes:30}") long lockoutMinutes,
+            @Value("${auth.login.attempts-ttl-minutes:15}") long attemptsTtlMinutes) {
         this.redisTemplate = redisTemplate;
         this.maxAttempts = maxAttempts;
         this.lockoutDuration = Duration.ofMinutes(lockoutMinutes);
+        this.attemptsTtl = Duration.ofMinutes(attemptsTtlMinutes);
     }
 
     /**
@@ -47,22 +50,24 @@ public class LoginAttemptService {
     }
 
     /**
-     * Records a failed login attempt and locks the account if the threshold is reached.
+     * Records a failed login attempt and locks the account if threshold is reached.
+     * <p>
+     * Uses Redis INCR for atomic increment to prevent race conditions in concurrent requests.
      *
      * @param email the email address for which the login attempt failed
      */
     public void recordFailedAttempt(String email) {
         String attemptsKey = ATTEMPTS_PREFIX + email;
-        String attemptsStr = redisTemplate.opsForValue().get(attemptsKey);
-        int attempts = attemptsStr == null ? 0 : Integer.parseInt(attemptsStr);
 
-        attempts++;
+        Long attempts = redisTemplate.opsForValue().increment(attemptsKey);
+
+        if (attempts == 1) {
+            redisTemplate.expire(attemptsKey, attemptsTtl);
+        }
 
         if (attempts >= maxAttempts) {
             lockAccount(email);
             log.warn("Account locked out due to too many failed attempts: email={}", email);
-        } else {
-            redisTemplate.opsForValue().set(attemptsKey, String.valueOf(attempts), lockoutDuration);
         }
     }
 

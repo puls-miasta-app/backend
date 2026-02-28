@@ -2,8 +2,8 @@ package com.github.PulsMiastaApp.PulsMiasta.Security.Service;
 
 import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.ClientType;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.SessionCallback;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
@@ -76,20 +76,23 @@ public class TokenService {
      * The remember-me token itself is NOT consumed — it stays valid until its own TTL expires,
      * allowing the user to stay logged in across multiple session expirations.
      * <p>
-     * Uses Redis MULTI/EXEC to ensure atomicity and prevent duplicate session creation
+     * Uses Redis MULTI/EXEC transaction to ensure atomicity and prevent duplicate session creation
      * in case of concurrent requests.
      *
      * @return new session token, or empty if the remember-me token is invalid/expired
      */
     public Optional<String> renewSessionFromRememberMe(String rememberMeToken) {
         String rememberKey = REMEMBER_PREFIX + rememberMeToken;
-        return redisTemplate.execute((RedisCallback<Optional<String>>) connection -> {
-            Long userId = redisTemplate.opsForValue().get(rememberKey);
-            if (userId == null) {
-                return Optional.empty();
+        return redisTemplate.execute(new SessionCallback<Optional<String>>() {
+            @Override
+            public Optional<String> execute(org.springframework.data.redis.core.RedisOperations<String, Long> operations) {
+                Long userId = operations.opsForValue().get(rememberKey);
+                if (userId == null) {
+                    return Optional.empty();
+                }
+                String sessionToken = createSession(userId);
+                return Optional.of(sessionToken);
             }
-            String sessionToken = createSession(userId);
-            return Optional.of(sessionToken);
         });
     }
 

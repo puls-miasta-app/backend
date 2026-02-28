@@ -47,14 +47,21 @@ public class AuthService {
      * Returns {@link LoginResult.SessionGranted} when no 2FA is configured/required,
      * or {@link LoginResult.TwoFactorRequired} when the account requires TOTP verification
      * before a session can be granted (ADMIN role always requires TOTP).
+     * <p>
+     * Performs user lookup before lockout check to prevent email enumeration attacks.
+     * Uses consistent error messages to avoid leaking information about account existence.
      *
      * @param request login credentials
      * @return {@link LoginResult} — either a full session or a pending 2FA token
      */
     public LoginResult login(LoginRequest request) {
-        loginAttemptService.checkLockout(request.email());
+        User user = userRepository.findByEmail(request.email()).orElse(null);
 
-        User user = findByEmail(request.email());
+        if (user == null) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials");
+        }
+
+        loginAttemptService.checkLockout(request.email());
 
         if (!passwordEncoder.matches(request.password(), user.getPasswordHash())) {
             loginAttemptService.recordFailedAttempt(request.email());

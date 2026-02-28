@@ -95,6 +95,8 @@ public class SudoOtpService {
     /**
      * Verifies the OTP submitted by the user.
      * Increments the failure counter on mismatch; deletes the code on success.
+     * <p>
+     * Uses Redis INCR for atomic increment to prevent race conditions in concurrent requests.
      *
      * @param userId the authenticated user's ID
      * @param code   the 6-digit code submitted by the user
@@ -102,29 +104,25 @@ public class SudoOtpService {
      */
     public void verifyOtp(Long userId, String code) {
         String attemptsKey = ATTEMPTS_PREFIX + userId;
-        String attemptsStr = redisTemplate.opsForValue().get(attemptsKey);
-        int attempts = 0;
-        if (attemptsStr != null) {
-            try {
-                attempts = Integer.parseInt(attemptsStr);
-            } catch (NumberFormatException e) {
-                log.warn("Corrupted attempts value for userId={}, resetting to 0", userId);
-                attempts = 0;
-            }
+
+        Long attempts = redisTemplate.opsForValue().increment(attemptsKey);
+
+        if (attempts == 1) {
+            redisTemplate.expire(attemptsKey, otpTtl);
         }
 
-        if (attempts >= maxAttempts) {
+        if (attempts > maxAttempts) {
             throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,
                     "Too many incorrect attempts. Please request a new code.");
         }
 
         String stored = redisTemplate.opsForValue().get(OTP_PREFIX + userId);
         if (stored == null) {
+            redisTemplate.opsForValue().decrement(attemptsKey);
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Code expired or not requested");
         }
 
         if (!stored.equals(code)) {
-            redisTemplate.opsForValue().set(attemptsKey, String.valueOf(attempts + 1), otpTtl);
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid code");
         }
 
