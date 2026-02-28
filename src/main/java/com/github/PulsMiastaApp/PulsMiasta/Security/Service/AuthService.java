@@ -21,6 +21,7 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final EmailVerificationService emailVerificationService;
     private final TwoFactorPendingService twoFactorPendingService;
+    private final LoginAttemptService loginAttemptService;
 
     public AuthResult register(RegisterRequest request) {
         if (userRepository.existsByEmail(request.email())) {
@@ -51,11 +52,20 @@ public class AuthService {
      * @return {@link LoginResult} — either a full session or a pending 2FA token
      */
     public LoginResult login(LoginRequest request) {
+        loginAttemptService.checkLockout(request.email());
+
         User user = findByEmail(request.email());
 
         if (!passwordEncoder.matches(request.password(), user.getPasswordHash())) {
+            loginAttemptService.recordFailedAttempt(request.email());
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials");
         }
+
+        if (!user.isEmailVerified()) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Email must be verified before login");
+        }
+
+        loginAttemptService.clearAttempts(request.email());
 
         boolean requiresTwoFactor = user.isTotpEnabled() || "ADMIN".equals(user.getRole());
         if (requiresTwoFactor) {

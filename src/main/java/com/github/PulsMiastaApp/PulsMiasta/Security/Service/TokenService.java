@@ -2,6 +2,7 @@ package com.github.PulsMiastaApp.PulsMiasta.Security.Service;
 
 import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.ClientType;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 
@@ -74,15 +75,22 @@ public class TokenService {
      * Validates a remember-me token and, if valid, creates a fresh session.
      * The remember-me token itself is NOT consumed — it stays valid until its own TTL expires,
      * allowing the user to stay logged in across multiple session expirations.
+     * <p>
+     * Uses Redis MULTI/EXEC to ensure atomicity and prevent duplicate session creation
+     * in case of concurrent requests.
      *
      * @return new session token, or empty if the remember-me token is invalid/expired
      */
     public Optional<String> renewSessionFromRememberMe(String rememberMeToken) {
-        Long userId = redisTemplate.opsForValue().get(REMEMBER_PREFIX + rememberMeToken);
-        if (userId == null) {
-            return Optional.empty();
-        }
-        return Optional.of(createSession(userId));
+        String rememberKey = REMEMBER_PREFIX + rememberMeToken;
+        return redisTemplate.execute((RedisCallback<Optional<String>>) connection -> {
+            Long userId = redisTemplate.opsForValue().get(rememberKey);
+            if (userId == null) {
+                return Optional.empty();
+            }
+            String sessionToken = createSession(userId);
+            return Optional.of(sessionToken);
+        });
     }
 
     public void invalidateRememberMeToken(String token) {

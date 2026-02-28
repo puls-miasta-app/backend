@@ -54,7 +54,7 @@ public class TotpController {
     private final UserRepository userRepository;
     private final StringRedisTemplate stringRedisTemplate;
 
-    @Value("${auth.sudo-otp.ttl-minutes:10}")
+    @Value("${auth.totp.setup-ttl-minutes:10}")
     private long setupTtlMinutes;
 
     /**

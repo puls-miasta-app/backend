@@ -103,7 +103,15 @@ public class SudoOtpService {
     public void verifyOtp(Long userId, String code) {
         String attemptsKey = ATTEMPTS_PREFIX + userId;
         String attemptsStr = redisTemplate.opsForValue().get(attemptsKey);
-        int attempts = attemptsStr == null ? 0 : Integer.parseInt(attemptsStr);
+        int attempts = 0;
+        if (attemptsStr != null) {
+            try {
+                attempts = Integer.parseInt(attemptsStr);
+            } catch (NumberFormatException e) {
+                log.warn("Corrupted attempts value for userId={}, resetting to 0", userId);
+                attempts = 0;
+            }
+        }
 
         if (attempts >= maxAttempts) {
             throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,
