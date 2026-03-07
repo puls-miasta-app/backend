@@ -3,6 +3,7 @@ package com.github.PulsMiastaApp.PulsMiasta.Security.Service;
 import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.ClientType;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.stereotype.Service;
@@ -30,6 +31,7 @@ public class TokenService {
                     "return sessionToken";
 
     private final RedisTemplate<String, Long> redisTemplate;
+    private final StringRedisTemplate stringRedisTemplate;
     private final RedisScript<String> renewSessionScript;
     private final Duration sessionTtl;
     private final Duration rememberMeWebTtl;
@@ -37,6 +39,7 @@ public class TokenService {
 
     public TokenService(
             RedisTemplate<String, Long> redisTemplate,
+            StringRedisTemplate stringRedisTemplate,
             @Value("${auth.session.ttl-minutes}") long sessionMinutes,
             @Value("${auth.remember-me.web.ttl-days}") long rememberMeWebDays,
             @Value("${auth.remember-me.mobile.ttl-days}") long rememberMeMobileDays
@@ -52,6 +55,7 @@ public class TokenService {
         }
 
         this.redisTemplate = redisTemplate;
+        this.stringRedisTemplate = stringRedisTemplate;
         this.sessionTtl = Duration.ofMinutes(sessionMinutes);
         this.rememberMeWebTtl = Duration.ofDays(rememberMeWebDays);
         this.rememberMeMobileTtl = Duration.ofDays(rememberMeMobileDays);
@@ -113,9 +117,8 @@ public class TokenService {
         long ttlSeconds = sessionTtl.getSeconds();
 
         List<String> keys = Collections.singletonList(rememberKey);
-        List<String> args = List.of(newSessionToken, sessionKey, String.valueOf(ttlSeconds));
 
-        String result = redisTemplate.execute(renewSessionScript, keys, args);
+        String result = stringRedisTemplate.execute(renewSessionScript, keys, newSessionToken, sessionKey, String.valueOf(ttlSeconds));
 
         if (result == null) {
             return Optional.empty();
