@@ -41,6 +41,9 @@ class AuthServiceTest {
     @Mock
     private TwoFactorPendingService twoFactorPendingService;
 
+    @Mock
+    private LoginAttemptService loginAttemptService;
+
     @InjectMocks
     private AuthService authService;
 
@@ -114,6 +117,7 @@ class AuthServiceTest {
         user.setPasswordHash("hashed-password");
         user.setEmail("jan@example.com");
         user.setRole("USER");
+        user.setEmailVerified(true);
 
         LoginRequest request = new LoginRequest("jan@example.com", "password123", false, ClientType.WEB);
 
@@ -121,7 +125,7 @@ class AuthServiceTest {
         when(passwordEncoder.matches("password123", "hashed-password")).thenReturn(true);
         when(tokenService.createSession(1L)).thenReturn("session-token");
 
-        LoginResult result = authService.login(request);
+        LoginResult result = authService.login(request, "127.0.0.1");
 
         assertThat(result).isInstanceOf(LoginResult.SessionGranted.class);
         LoginResult.SessionGranted granted = (LoginResult.SessionGranted) result;
@@ -136,6 +140,7 @@ class AuthServiceTest {
         user.setPasswordHash("hashed-password");
         user.setEmail("jan@example.com");
         user.setRole("USER");
+        user.setEmailVerified(true);
 
         LoginRequest request = new LoginRequest("jan@example.com", "password123", true, ClientType.MOBILE);
 
@@ -144,7 +149,7 @@ class AuthServiceTest {
         when(tokenService.createSession(2L)).thenReturn("session-token");
         when(tokenService.createRememberMeToken(2L, ClientType.MOBILE)).thenReturn("remember-token");
 
-        LoginResult result = authService.login(request);
+        LoginResult result = authService.login(request, "127.0.0.1");
 
         assertThat(result).isInstanceOf(LoginResult.SessionGranted.class);
         assertThat(((LoginResult.SessionGranted) result).rememberMeToken()).isEqualTo("remember-token");
@@ -163,7 +168,7 @@ class AuthServiceTest {
         when(userRepository.findByEmail("jan@example.com")).thenReturn(Optional.of(user));
         when(passwordEncoder.matches("wrong-password", "hashed-password")).thenReturn(false);
 
-        assertThatThrownBy(() -> authService.login(request))
+        assertThatThrownBy(() -> authService.login(request, "127.0.0.1"))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("Invalid credentials");
     }
@@ -174,7 +179,7 @@ class AuthServiceTest {
 
         when(userRepository.findByEmail("nonexistent@example.com")).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> authService.login(request))
+        assertThatThrownBy(() -> authService.login(request, "127.0.0.1"))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("Invalid credentials");
     }

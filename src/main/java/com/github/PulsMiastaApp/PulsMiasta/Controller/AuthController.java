@@ -4,13 +4,7 @@ import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.*;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.User;
 import com.github.PulsMiastaApp.PulsMiasta.Security.Filter.AuthTokenFilter;
 import com.github.PulsMiastaApp.PulsMiasta.Security.Model.AuthPrincipal;
-import com.github.PulsMiastaApp.PulsMiasta.Security.Service.AuthResult;
-import com.github.PulsMiastaApp.PulsMiasta.Security.Service.AuthService;
-import com.github.PulsMiastaApp.PulsMiasta.Security.Service.EmailVerificationService;
-import com.github.PulsMiastaApp.PulsMiasta.Security.Service.SudoModeService;
-import com.github.PulsMiastaApp.PulsMiasta.Security.Service.SudoOtpService;
-import com.github.PulsMiastaApp.PulsMiasta.Security.Service.TotpService;
-import com.github.PulsMiastaApp.PulsMiasta.Security.Service.TwoFactorPendingService;
+import com.github.PulsMiastaApp.PulsMiasta.Security.Service.*;
 import com.github.PulsMiastaApp.PulsMiasta.Security.WebAuthn.DTO.AuthenticationBeginResponse;
 import com.github.PulsMiastaApp.PulsMiasta.Security.WebAuthn.DTO.SudoFinishRequest;
 import com.github.PulsMiastaApp.PulsMiasta.Security.WebAuthn.Service.WebAuthnService;
@@ -35,6 +29,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.Duration;
 import java.util.UUID;
 
 @RestController
@@ -49,6 +44,7 @@ public class AuthController {
     private final TwoFactorPendingService twoFactorPendingService;
     private final TotpService totpService;
     private final SudoOtpService sudoOtpService;
+    private final RateLimitService rateLimitService;
 
     @Value("${auth.session.ttl-minutes}")
     private long sessionTtlMinutes;
@@ -118,13 +114,18 @@ public class AuthController {
                     schema = @Schema(implementation = LoginSuccessResponse.class))),
             @ApiResponse(responseCode = "202", description = "TOTP required — see pendingToken in response body"),
             @ApiResponse(responseCode = "401", content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = ErrorResponse.class)))
+                    schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "429", description = "Rate limit exceeded")
     })
     public ResponseEntity<SuccessResponse<?>> login(
             @Valid @RequestBody LoginRequest request,
-            HttpServletResponse response) {
+            HttpServletResponse response,
+            HttpServletRequest httpRequest) {
 
-        LoginResult result = authService.login(request);
+        rateLimitService.checkRateLimit(httpRequest, 5, Duration.ofMinutes(1));
+
+        String clientIp = rateLimitService.getClientIp(httpRequest);
+        LoginResult result = authService.login(request, clientIp);
 
         return switch (result) {
             case LoginResult.SessionGranted granted -> {
@@ -134,9 +135,8 @@ public class AuthController {
                         sessionTtlMinutes, rememberMeWebDays, rememberMeMobileDays);
                 yield ResponseEntity.ok(SuccessResponse.of("Logged in successfully"));
             }
-            case LoginResult.TwoFactorRequired pending ->
-                    ResponseEntity.status(HttpStatus.ACCEPTED)
-                            .body(SuccessResponse.of(new TwoFactorRequiredResponse(pending.pendingToken())));
+            case LoginResult.TwoFactorRequired pending -> ResponseEntity.status(HttpStatus.ACCEPTED)
+                    .body(SuccessResponse.of(new TwoFactorRequiredResponse(pending.pendingToken())));
         };
     }
 
@@ -154,7 +154,10 @@ public class AuthController {
     @Operation(summary = "Complete login with TOTP code (step 2 after 202 from /login)")
     public ResponseEntity<SuccessResponse<String>> loginTotp(
             @Valid @RequestBody LoginTotpRequest request,
-            HttpServletResponse response) {
+            HttpServletResponse response,
+            HttpServletRequest httpRequest) {
+
+        rateLimitService.checkRateLimit(httpRequest, 5, Duration.ofMinutes(1));
 
         Long userId = twoFactorPendingService.consumePendingToken(request.pendingToken());
         User user = authService.findById(userId);
@@ -421,7 +424,9 @@ public class AuthController {
         return authService.findById(principal.id());
     }
 
-    /** Extracts the session token from the cookie and activates sudo mode for it. */
+    /**
+     * Extracts the session token from the cookie and activates sudo mode for it.
+     */
     private void activateSudoForSession(HttpServletRequest request) {
         String sessionToken = AuthTokenFilter.extractCookie(request, AuthTokenFilter.SESSION_COOKIE_NAME)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication required"));

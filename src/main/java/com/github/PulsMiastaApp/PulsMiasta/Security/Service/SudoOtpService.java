@@ -55,6 +55,16 @@ public class SudoOtpService {
             @Value("${auth.sudo-otp.max-attempts:3}") int maxAttempts,
             @Value("${app.mail.from}") String mailFrom
     ) {
+        if (ttlMinutes <= 0) {
+            throw new IllegalArgumentException("auth.sudo-otp.ttl-minutes must be greater than 0");
+        }
+        if (cooldownSeconds <= 0) {
+            throw new IllegalArgumentException("auth.sudo-otp.cooldown-seconds must be greater than 0");
+        }
+        if (maxAttempts <= 0) {
+            throw new IllegalArgumentException("auth.sudo-otp.max-attempts must be greater than 0");
+        }
+
         this.mailSender = mailSender;
         this.redisTemplate = redisTemplate;
         this.otpTtl = Duration.ofMinutes(ttlMinutes);
@@ -66,13 +76,25 @@ public class SudoOtpService {
     /**
      * Generates and emails a 6-digit OTP for sudo mode activation.
      * Enforces a per-user cooldown to prevent email flooding.
+     * <p>
+     * Validates input parameters before processing.
      *
      * @param userId    the authenticated user's ID
-     * @param email     the email address to send the code to
+     * @param email     email address to send the code to
      * @param firstName the user's first name (used in email greeting)
      */
     @Async
     public void sendOtp(Long userId, String email, String firstName) {
+        if (userId == null) {
+            throw new IllegalArgumentException("userId cannot be null");
+        }
+        if (email == null || email.trim().isEmpty()) {
+            throw new IllegalArgumentException("email cannot be null or empty");
+        }
+        if (firstName == null || firstName.trim().isEmpty()) {
+            throw new IllegalArgumentException("firstName cannot be null or empty");
+        }
+
         String sentKey = SENT_PREFIX + userId;
         if (Boolean.TRUE.equals(redisTemplate.hasKey(sentKey))) {
             log.debug("Sudo OTP send rejected — cooldown active for userId={}", userId);
@@ -81,42 +103,58 @@ public class SudoOtpService {
         }
 
         String code = generateCode();
-        redisTemplate.opsForValue().set(OTP_PREFIX + userId, code, otpTtl);
-        redisTemplate.opsForValue().set(SENT_PREFIX + userId, Instant.now().toString(), cooldown);
-        redisTemplate.delete(ATTEMPTS_PREFIX + userId);
 
         try {
             sendEmail(email, firstName, code);
+            redisTemplate.opsForValue().set(OTP_PREFIX + userId, code, otpTtl);
+            redisTemplate.opsForValue().set(SENT_PREFIX + userId, Instant.now().toString(), cooldown);
+            redisTemplate.delete(ATTEMPTS_PREFIX + userId);
         } catch (Exception e) {
-            log.error("Failed to send sudo OTP email to userId={}: {}", userId, e.getMessage());
+            log.error("Failed to send sudo OTP email to userId={}: {}", userId, e.getMessage(), e);
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR,
+                    "Failed to send verification code. Please try again.");
         }
     }
 
     /**
      * Verifies the OTP submitted by the user.
      * Increments the failure counter on mismatch; deletes the code on success.
+     * <p>
+     * Uses Redis INCR for atomic increment to prevent race conditions in concurrent requests.
+     * Validates input parameters before processing.
      *
      * @param userId the authenticated user's ID
      * @param code   the 6-digit code submitted by the user
      * @throws ResponseStatusException 400 if code invalid/expired, 429 if too many attempts
      */
     public void verifyOtp(Long userId, String code) {
-        String attemptsKey = ATTEMPTS_PREFIX + userId;
-        String attemptsStr = redisTemplate.opsForValue().get(attemptsKey);
-        int attempts = attemptsStr == null ? 0 : Integer.parseInt(attemptsStr);
+        if (userId == null) {
+            throw new IllegalArgumentException("userId cannot be null");
+        }
+        if (code == null || code.trim().isEmpty()) {
+            throw new IllegalArgumentException("code cannot be null or empty");
+        }
 
-        if (attempts >= maxAttempts) {
+        String attemptsKey = ATTEMPTS_PREFIX + userId;
+
+        Long attempts = redisTemplate.opsForValue().increment(attemptsKey);
+
+        if (attempts == 1) {
+            redisTemplate.expire(attemptsKey, otpTtl);
+        }
+
+        if (attempts > maxAttempts) {
             throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,
                     "Too many incorrect attempts. Please request a new code.");
         }
 
         String stored = redisTemplate.opsForValue().get(OTP_PREFIX + userId);
         if (stored == null) {
+            redisTemplate.opsForValue().decrement(attemptsKey);
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Code expired or not requested");
         }
 
         if (!stored.equals(code)) {
-            redisTemplate.opsForValue().set(attemptsKey, String.valueOf(attempts + 1), otpTtl);
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid code");
         }
 

@@ -21,6 +21,7 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final EmailVerificationService emailVerificationService;
     private final TwoFactorPendingService twoFactorPendingService;
+    private final LoginAttemptService loginAttemptService;
 
     public AuthResult register(RegisterRequest request) {
         if (userRepository.existsByEmail(request.email())) {
@@ -46,16 +47,36 @@ public class AuthService {
      * Returns {@link LoginResult.SessionGranted} when no 2FA is configured/required,
      * or {@link LoginResult.TwoFactorRequired} when the account requires TOTP verification
      * before a session can be granted (ADMIN role always requires TOTP).
+     * <p>
+     * Performs user lookup before lockout check to prevent email enumeration attacks.
+     * Uses consistent error messages to avoid leaking information about account existence.
+     * <p>
+     * Lockout is scoped to the (clientIp, email) pair so that an attacker sending requests
+     * from their own IP cannot lock out the legitimate owner logging in from a different IP.
      *
-     * @param request login credentials
+     * @param request  login credentials
+     * @param clientIp resolved client IP from {@link RateLimitService#getClientIp}
      * @return {@link LoginResult} — either a full session or a pending 2FA token
      */
-    public LoginResult login(LoginRequest request) {
-        User user = findByEmail(request.email());
+    public LoginResult login(LoginRequest request, String clientIp) {
+        User user = userRepository.findByEmail(request.email()).orElse(null);
 
-        if (!passwordEncoder.matches(request.password(), user.getPasswordHash())) {
+        if (user == null) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials");
         }
+
+        loginAttemptService.checkLockout(clientIp, request.email());
+
+        if (!passwordEncoder.matches(request.password(), user.getPasswordHash())) {
+            loginAttemptService.recordFailedAttempt(clientIp, request.email());
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials");
+        }
+
+        if (!user.isEmailVerified()) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Email must be verified before login");
+        }
+
+        loginAttemptService.clearAttempts(clientIp, request.email());
 
         boolean requiresTwoFactor = user.isTotpEnabled() || "ADMIN".equals(user.getRole());
         if (requiresTwoFactor) {

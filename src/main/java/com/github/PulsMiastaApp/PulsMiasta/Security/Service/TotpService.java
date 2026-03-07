@@ -8,10 +8,17 @@ import dev.samstevens.totp.secret.DefaultSecretGenerator;
 import dev.samstevens.totp.secret.SecretGenerator;
 import dev.samstevens.totp.time.SystemTimeProvider;
 import dev.samstevens.totp.time.TimeProvider;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.time.Duration;
+import java.util.HexFormat;
 
 /**
  * Provides TOTP (Time-based One-Time Password, RFC 6238) operations.
@@ -21,24 +28,39 @@ import java.nio.charset.StandardCharsets;
  * <p>
  * Verification uses a ±1 time-step window (i.e. ±30 seconds) to tolerate
  * minor clock drift between server and client device.
+ * <p>
+ * Includes replay protection: tracks recently used codes to prevent reuse
+ * within the same time window. Codes are blocked for 5 minutes to cover
+ * the 3-time-step window (90 seconds) with buffer for clock drift.
  */
+@Slf4j
 @Service
 public class TotpService {
 
     private static final String ISSUER = "PulsMiasta";
     private static final int SECRET_LENGTH = 32;
+    private static final String USED_CODE_PREFIX = "totp_used:";
+    private static final long USED_CODE_TTL_MINUTES = 5;
 
     private final SecretGenerator secretGenerator;
     private final CodeVerifier codeVerifier;
+    private final StringRedisTemplate redisTemplate;
 
-    public TotpService() {
+    @Autowired
+    public TotpService(StringRedisTemplate redisTemplate) {
         this.secretGenerator = new DefaultSecretGenerator(SECRET_LENGTH);
+        this.redisTemplate = redisTemplate;
+
+        if (this.redisTemplate == null) {
+            throw new IllegalStateException("Redis is required for TOTP replay protection. " +
+                    "Please ensure Spring Data Redis is properly configured.");
+        }
 
         TimeProvider timeProvider = new SystemTimeProvider();
         CodeGenerator codeGenerator = new DefaultCodeGenerator();
         DefaultCodeVerifier verifier = new DefaultCodeVerifier(codeGenerator, timeProvider);
         verifier.setTimePeriod(30);
-        verifier.setAllowedTimePeriodDiscrepancy(1); // ±30 seconds tolerance
+        verifier.setAllowedTimePeriodDiscrepancy(1);
         this.codeVerifier = verifier;
     }
 
@@ -70,12 +92,47 @@ public class TotpService {
     /**
      * Verifies a 6-digit TOTP code against the stored secret.
      * Accepts codes from the previous, current, and next 30-second window.
+     * <p>
+     * Includes replay protection: checks if the code has already been used
+     * and rejects it if it has been used within the recent time window.
      *
      * @param secret the Base32 secret stored for the user
      * @param code   the 6-digit code entered by the user
-     * @return {@code true} if the code is valid
+     * @return {@code true} if the code is valid and not replayed
      */
     public boolean isValidCode(String secret, String code) {
-        return codeVerifier.isValidCode(secret, code);
+        if (isCodeUsed(secret, code)) {
+            log.debug("TOTP code replay detected for secret={}", secret);
+            return false;
+        }
+
+        if (!codeVerifier.isValidCode(secret, code)) {
+            return false;
+        }
+
+        markCodeAsUsed(secret, code);
+        return true;
+    }
+
+    private String hashSecret(String secret) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(secret.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(hash);
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 algorithm not available", e);
+        }
+    }
+
+    private boolean isCodeUsed(String secret, String code) {
+        String hashedSecret = hashSecret(secret);
+        String key = USED_CODE_PREFIX + hashedSecret + ":" + code;
+        return Boolean.TRUE.equals(redisTemplate.hasKey(key));
+    }
+
+    private void markCodeAsUsed(String secret, String code) {
+        String hashedSecret = hashSecret(secret);
+        String key = USED_CODE_PREFIX + hashedSecret + ":" + code;
+        redisTemplate.opsForValue().set(key, "1", Duration.ofMinutes(USED_CODE_TTL_MINUTES));
     }
 }

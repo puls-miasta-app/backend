@@ -7,6 +7,7 @@ import com.github.PulsMiastaApp.PulsMiasta.Security.Annotation.RequireSudoMode;
 import com.github.PulsMiastaApp.PulsMiasta.Security.Filter.AuthTokenFilter;
 import com.github.PulsMiastaApp.PulsMiasta.Security.Model.AuthPrincipal;
 import com.github.PulsMiastaApp.PulsMiasta.Security.Service.AuthResult;
+import com.github.PulsMiastaApp.PulsMiasta.Security.Service.RateLimitService;
 import com.github.PulsMiastaApp.PulsMiasta.Security.WebAuthn.DTO.*;
 import com.github.PulsMiastaApp.PulsMiasta.Security.WebAuthn.Service.WebAuthnService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -22,6 +23,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
 
@@ -63,6 +65,7 @@ public class PasskeyController {
 
     private final WebAuthnService webAuthnService;
     private final UserRepository userRepository;
+    private final RateLimitService rateLimitService;
 
     @Value("${auth.session.ttl-minutes}")
     private long sessionTtlMinutes;
@@ -94,10 +97,9 @@ public class PasskeyController {
 
         requireAuthenticated(principal);
 
-        // Use the current session token as the ceremony session key so it is
-        // cryptographically bound to the authenticated session without an extra round-trip.
-        String sessionKey = AuthTokenFilter.extractCookie(request, AuthTokenFilter.SESSION_COOKIE_NAME)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "No session cookie"));
+        // Generate a random, cryptographically opaque session key for this ceremony
+        // to prevent replay attacks if the begin response is intercepted
+        String sessionKey = UUID.randomUUID().toString();
 
         var user = userRepository.findById(principal.id())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User not found"));
@@ -148,7 +150,10 @@ public class PasskeyController {
      */
     @PostMapping("/authentication/begin")
     @Operation(summary = "Begin discoverable passkey authentication — no username required")
-    public ResponseEntity<SuccessResponse<AuthenticationBeginResponse>> authenticationBegin() {
+    public ResponseEntity<SuccessResponse<AuthenticationBeginResponse>> authenticationBegin(
+            HttpServletRequest httpRequest) {
+        rateLimitService.checkRateLimit(httpRequest, 5, Duration.ofMinutes(1));
+
         // Generate a random, cryptographically opaque session key for this ceremony
         String sessionKey = UUID.randomUUID().toString();
 
@@ -170,7 +175,10 @@ public class PasskeyController {
     @Operation(summary = "Complete passkey authentication — sets session cookie on success")
     public ResponseEntity<SuccessResponse<String>> authenticationFinish(
             @Valid @RequestBody AuthenticationFinishRequest request,
-            HttpServletResponse response) {
+            HttpServletResponse response,
+            HttpServletRequest httpRequest) {
+
+        rateLimitService.checkRateLimit(httpRequest, 5, Duration.ofMinutes(1));
 
         AuthResult result = webAuthnService.finishAuthentication(request);
         AuthTokenFilter.applyAuthCookies(response, result, request.rememberMe(),

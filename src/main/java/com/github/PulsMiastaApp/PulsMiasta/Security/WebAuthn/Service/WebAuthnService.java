@@ -7,11 +7,7 @@ import com.github.PulsMiastaApp.PulsMiasta.Repository.UserRepository;
 import com.github.PulsMiastaApp.PulsMiasta.Security.Service.AuthResult;
 import com.github.PulsMiastaApp.PulsMiasta.Security.Service.TokenService;
 import com.github.PulsMiastaApp.PulsMiasta.Security.WebAuthn.Config.WebAuthnProperties;
-import com.github.PulsMiastaApp.PulsMiasta.Security.WebAuthn.DTO.AuthenticationBeginResponse;
-import com.github.PulsMiastaApp.PulsMiasta.Security.WebAuthn.DTO.AuthenticationFinishRequest;
-import com.github.PulsMiastaApp.PulsMiasta.Security.WebAuthn.DTO.RegistrationBeginResponse;
-import com.github.PulsMiastaApp.PulsMiasta.Security.WebAuthn.DTO.RegistrationFinishRequest;
-import com.github.PulsMiastaApp.PulsMiasta.Security.WebAuthn.DTO.SudoFinishRequest;
+import com.github.PulsMiastaApp.PulsMiasta.Security.WebAuthn.DTO.*;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.web.webauthn.api.*;
@@ -99,8 +95,22 @@ public class WebAuthnService {
     @Transactional
     public RegistrationBeginResponse beginRegistration(User user, String sessionKey) {
         // Ensure the user has a WebAuthn user handle (lazy-assign on first passkey action)
-        user.ensureWebauthnUserHandle();
-        userRepository.save(user);
+        // Use a transactional retry to handle potential race conditions
+        if (user.getWebauthnUserHandle() == null) {
+            int maxRetries = 3;
+            for (int i = 0; i < maxRetries; i++) {
+                try {
+                    user.ensureWebauthnUserHandle();
+                    userRepository.save(user);
+                    break;
+                } catch (Exception e) {
+                    if (i == maxRetries - 1 || !e.getMessage().contains("Duplicate")) {
+                        throw e;
+                    }
+                    user = userRepository.findById(user.getId()).orElseThrow();
+                }
+            }
+        }
 
         // Generate and store challenge
         byte[] challenge = challengeStore.generateAndStore("reg:" + sessionKey);
@@ -372,7 +382,7 @@ public class WebAuthnService {
      * @param request             the assertion response from the authenticator
      * @param authenticatedUserId the ID of the currently authenticated user (from SecurityContext)
      * @throws org.springframework.web.server.ResponseStatusException 400 if ceremony expired,
-     *                                                                 401 if verification fails or credential ownership mismatch
+     *                                                                401 if verification fails or credential ownership mismatch
      */
     @Transactional
     public void verifyForSudoMode(SudoFinishRequest request, Long authenticatedUserId) {
