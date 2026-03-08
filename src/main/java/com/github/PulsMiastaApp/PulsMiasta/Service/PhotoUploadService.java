@@ -116,7 +116,10 @@ public class PhotoUploadService {
 
         } catch (Exception ex) {
             log.error("Upload failed for taskId={}", taskId, ex);
-            abortMultipartUploadQuietly(r2Key, uploadId);
+            // Only attempt abort if the multipart upload was actually initiated
+            if (uploadId != null) {
+                abortMultipartUploadQuietly(r2Key, uploadId);
+            }
             task.setStatus(TaskStatus.FAILED);
             taskEntryRepository.save(task);
         } finally {
@@ -141,6 +144,11 @@ public class PhotoUploadService {
             byte[] dekIv = meta.dekIv();
             byte[] encryptedDek = meta.encryptedDek();
             byte[] dataIv = meta.dataIv();
+
+            // Identical validations to FileCryptoService — fields are length-prefixed with a single byte
+            if (kekNameBytes.length > 255) throw new IllegalArgumentException("kekName too long");
+            if (dekIv.length > 255) throw new IllegalArgumentException("dekIv too long");
+            if (dataIv.length > 255) throw new IllegalArgumentException("dataIv too long");
 
             // Header — identical layout to FileCryptoService so decrypt() works unchanged
             dos.writeInt(MAGIC);
