@@ -17,8 +17,7 @@ import java.util.UUID;
 public class TaskEntry {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.UUID)
-    @Column(columnDefinition = "BINARY(16)", updatable = false, nullable = false)
+    @Column(updatable = false, nullable = false)
     private UUID id;
 
     /** S3/R2 object key (path within the bucket). */
@@ -52,6 +51,9 @@ public class TaskEntry {
 
     @PrePersist
     private void prePersist() {
+        if (id == null) {
+            id = UUID.randomUUID();
+        }
         createdAt = Instant.now();
     }
 }

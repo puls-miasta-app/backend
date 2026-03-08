@@ -25,6 +25,9 @@ import static org.springframework.http.HttpStatus.BAD_REQUEST;
 @RequiredArgsConstructor
 public class PhotoUploadController {
 
+    /** 50 MiB — guards temp disk space and encryption heap pressure. */
+    private static final long MAX_FILE_SIZE = 50L * 1024 * 1024;
+
     private final TaskEntryRepository taskEntryRepository;
     private final PhotoUploadService photoUploadService;
 
@@ -43,6 +46,9 @@ public class PhotoUploadController {
     public ResponseEntity<TaskResponse> upload(@RequestParam("file") MultipartFile file) throws IOException {
         if (file.isEmpty()) {
             throw new ResponseStatusException(BAD_REQUEST, "Uploaded file must not be empty");
+        }
+        if (file.getSize() > MAX_FILE_SIZE) {
+            throw new ResponseStatusException(BAD_REQUEST, "File exceeds maximum allowed size of 50 MiB");
         }
 
         TaskEntry task = new TaskEntry();

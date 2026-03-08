@@ -2,7 +2,6 @@ package com.github.PulsMiastaApp.PulsMiasta.Service;
 
 import com.github.PulsMiastaApp.PulsMiasta.Crypto.CryptoService;
 import com.github.PulsMiastaApp.PulsMiasta.Crypto.StreamEncryptedData;
-import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.TaskEntry;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Enums.TaskStatus;
 import com.github.PulsMiastaApp.PulsMiasta.Repository.TaskEntryRepository;
 import lombok.RequiredArgsConstructor;
@@ -64,10 +63,9 @@ public class PhotoUploadService {
      */
     @Async("photoUploadExecutor")
     public void processUpload(UUID taskId, Path inputFile, String originalFilename) {
-        TaskEntry task = taskEntryRepository.findById(taskId)
-                .orElseThrow(() -> new IllegalStateException("TaskEntry not found: " + taskId));
-        task.setStatus(TaskStatus.PROCESSING);
-        taskEntryRepository.save(task);
+        // Each status change is a single atomic JPQL UPDATE — no entity loading needed,
+        // no risk of stale-state overwrites from concurrent threads.
+        taskEntryRepository.updateStatus(taskId, TaskStatus.PROCESSING);
 
         Path encryptedTemp = null;
         String uploadId = null;
@@ -106,22 +104,22 @@ public class PhotoUploadService {
                             .build()
             );
 
-            // ── 5. Persist metadata ───────────────────────────────────────────────
-            task.setR2Key(r2Key);
-            task.setEncryptionIv(Base64.getEncoder().encodeToString(meta.dataIv()));
-            task.setStatus(TaskStatus.COMPLETED);
-            taskEntryRepository.save(task);
+            // ── 5. Persist metadata (single atomic UPDATE) ───────────────────────
+            taskEntryRepository.updateCompleted(
+                    taskId,
+                    TaskStatus.COMPLETED,
+                    r2Key,
+                    Base64.getEncoder().encodeToString(meta.dataIv())
+            );
 
             log.info("Upload completed: taskId={} r2Key={} size={} bytes", taskId, r2Key, encryptedSize);
 
         } catch (Exception ex) {
             log.error("Upload failed for taskId={}", taskId, ex);
-            // Only attempt abort if the multipart upload was actually initiated
             if (uploadId != null) {
                 abortMultipartUploadQuietly(r2Key, uploadId);
             }
-            task.setStatus(TaskStatus.FAILED);
-            taskEntryRepository.save(task);
+            taskEntryRepository.updateStatus(taskId, TaskStatus.FAILED);
         } finally {
             deleteTempFile(inputFile);
             deleteTempFile(encryptedTemp);
