@@ -1,6 +1,7 @@
 package com.github.PulsMiastaApp.PulsMiasta.Controller.advice;
 
 import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.ErrorResponse;
+import com.github.PulsMiastaApp.PulsMiasta.Crypto.EncryptionException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -27,6 +28,12 @@ public class GlobalExceptionHandler {
         }
         return ResponseEntity.status(ex.getStatusCode())
                 .body(ErrorResponse.of(ex.getReason(), errorCode));
+    }
+
+    @ExceptionHandler(EncryptionException.class)
+    public ResponseEntity<ErrorResponse> handleEncryption(EncryptionException ex) {
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(ErrorResponse.of("Encryption error: " + ex.getMessage(), "encryption_error"));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
