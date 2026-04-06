@@ -53,9 +53,12 @@ public class SecurityConfig {
                                 "/swagger-ui.html",
                                 "/swagger-ui/**",
                                 "/v3/api-docs/**").permitAll()
-                        // Standard auth (PESEL + password)
+                        // Standard auth (PESEL + password) + login 2FA steps
                         .requestMatchers("/v1/auth/register", "/v1/auth/login", "/v1/auth/logout",
-                                "/v1/auth/verify-email").permitAll()
+                                "/v1/auth/verify-email",
+                                "/v1/auth/login/totp",
+                                "/v1/auth/login/otp/send", "/v1/auth/login/otp/verify",
+                                "/v1/auth/login/passkey/begin", "/v1/auth/login/passkey/finish").permitAll()
                         // Passkey — authentication ceremony is public (no session needed to log in)
                         .requestMatchers(
                                 "/v1/auth/passkey/authentication/begin",

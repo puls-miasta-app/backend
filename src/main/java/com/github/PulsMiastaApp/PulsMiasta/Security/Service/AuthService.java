@@ -5,6 +5,7 @@ import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.LoginRequest;
 import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.LoginResult;
 import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.RegisterRequest;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.User;
+import com.github.PulsMiastaApp.PulsMiasta.Repository.UserCredentialRepository;
 import com.github.PulsMiastaApp.PulsMiasta.Repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -12,11 +13,15 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.util.ArrayList;
+import java.util.List;
+
 @Service
 @RequiredArgsConstructor
 public class AuthService {
 
     private final UserRepository userRepository;
+    private final UserCredentialRepository userCredentialRepository;
     private final TokenService tokenService;
     private final PasswordEncoder passwordEncoder;
     private final EmailVerificationService emailVerificationService;
@@ -78,16 +83,17 @@ public class AuthService {
 
         loginAttemptService.clearAttempts(clientIp, request.email());
 
-        boolean requiresTwoFactor = user.isTotpEnabled() || "ADMIN".equals(user.getRole());
+        List<String> availableMethods = buildAvailableMethods(user);
+        boolean requiresTwoFactor = !availableMethods.isEmpty() || "ADMIN".equals(user.getRole());
         if (requiresTwoFactor) {
-            if (!user.isTotpEnabled()) {
-                // ADMIN without TOTP configured — block login until TOTP is set up
+            if (availableMethods.isEmpty()) {
+                // ADMIN without any 2FA method configured — block login
                 throw new ResponseStatusException(HttpStatus.FORBIDDEN,
-                        "ADMIN accounts must configure TOTP before logging in. " +
+                        "ADMIN accounts must configure a 2FA method before logging in. " +
                                 "Please contact an administrator or use passkey login.");
             }
-            String pendingToken = twoFactorPendingService.createPendingToken(user.getId());
-            return new LoginResult.TwoFactorRequired(pendingToken);
+            String pendingToken = twoFactorPendingService.createPendingToken(user.getId(), availableMethods);
+            return new LoginResult.TwoFactorRequired(pendingToken, availableMethods);
         }
 
         AuthResult result = buildAuthResult(user.getId(), request.rememberMe(), request.clientType());
@@ -117,6 +123,20 @@ public class AuthService {
         if (rememberMeToken != null) {
             tokenService.invalidateRememberMeToken(rememberMeToken);
         }
+    }
+
+    private List<String> buildAvailableMethods(User user) {
+        List<String> methods = new ArrayList<>();
+        if (user.isTotpEnabled()) {
+            methods.add("TOTP");
+        }
+        if (user.isEmailOtpEnabled()) {
+            methods.add("EMAIL_OTP");
+        }
+        if (!userCredentialRepository.findAllByUserId(user.getId()).isEmpty()) {
+            methods.add("PASSKEY");
+        }
+        return methods;
     }
 
     private AuthResult buildAuthResult(Long userId, boolean rememberMe, ClientType clientType) {

@@ -5,6 +5,7 @@ import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.LoginRequest;
 import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.LoginResult;
 import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.RegisterRequest;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.User;
+import com.github.PulsMiastaApp.PulsMiasta.Repository.UserCredentialRepository;
 import com.github.PulsMiastaApp.PulsMiasta.Repository.UserRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -15,6 +16,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -28,6 +30,9 @@ class AuthServiceTest {
 
     @Mock
     private UserRepository userRepository;
+
+    @Mock
+    private UserCredentialRepository userCredentialRepository;
 
     @Mock
     private TokenService tokenService;
@@ -123,6 +128,7 @@ class AuthServiceTest {
 
         when(userRepository.findByEmail("jan@example.com")).thenReturn(Optional.of(user));
         when(passwordEncoder.matches("password123", "hashed-password")).thenReturn(true);
+        when(userCredentialRepository.findAllByUserId(1L)).thenReturn(List.of());
         when(tokenService.createSession(1L)).thenReturn("session-token");
 
         LoginResult result = authService.login(request, "127.0.0.1");
@@ -146,6 +152,7 @@ class AuthServiceTest {
 
         when(userRepository.findByEmail("jan@example.com")).thenReturn(Optional.of(user));
         when(passwordEncoder.matches("password123", "hashed-password")).thenReturn(true);
+        when(userCredentialRepository.findAllByUserId(2L)).thenReturn(List.of());
         when(tokenService.createSession(2L)).thenReturn("session-token");
         when(tokenService.createRememberMeToken(2L, ClientType.MOBILE)).thenReturn("remember-token");
 

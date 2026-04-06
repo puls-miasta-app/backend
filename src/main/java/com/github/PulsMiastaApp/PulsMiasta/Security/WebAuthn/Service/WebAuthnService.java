@@ -356,7 +356,23 @@ public class WebAuthnService {
      * @param sessionKey an opaque key for this ceremony (returned to the client to echo back)
      * @return the request options the client passes to {@code navigator.credentials.get()}
      */
+    /**
+     * Starts a passkey authentication ceremony scoped to a specific user's credentials,
+     * for use as a 2FA login step. Identical mechanism to sudo authentication.
+     *
+     * @param userId     the user's ID (from the pending 2FA token)
+     * @param sessionKey an opaque key for this ceremony
+     * @return the request options the client passes to {@code navigator.credentials.get()}
+     */
+    public AuthenticationBeginResponse beginLoginAuthentication(Long userId, String sessionKey) {
+        return beginUserScopedAuthentication(userId, sessionKey);
+    }
+
     public AuthenticationBeginResponse beginSudoAuthentication(Long userId, String sessionKey) {
+        return beginUserScopedAuthentication(userId, sessionKey);
+    }
+
+    private AuthenticationBeginResponse beginUserScopedAuthentication(Long userId, String sessionKey) {
         List<AuthenticationBeginResponse.AllowedCredential> allowCredentials =
                 credentialRepository.findAllByUserId(userId).stream()
                         .map(c -> new AuthenticationBeginResponse.AllowedCredential(
@@ -404,6 +420,38 @@ public class WebAuthnService {
 
         log.info("Sudo mode passkey verification success: userId={} credentialId={}",
                 authenticatedUserId, request.id());
+    }
+
+    // =========================================================================
+    // LOGIN 2FA — Finish (passkey as second factor)
+    // =========================================================================
+
+    /**
+     * Completes a passkey verification ceremony used as a 2FA login step.
+     * Verifies the WebAuthn assertion and confirms that the credential belongs
+     * to the expected user (from the pending token).
+     *
+     * @param request              the assertion response from the authenticator
+     * @param expectedUserId       the user ID from the consumed pending token
+     * @throws ResponseStatusException 400 if ceremony expired, 401 if verification fails
+     */
+    @Transactional
+    public void verifyForLogin(AuthenticationFinishRequest request, Long expectedUserId) {
+        byte[] challenge = challengeStore.consumeChallenge("auth:" + request.sessionKey())
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.BAD_REQUEST, "Login verification ceremony expired or already completed"));
+
+        PublicKeyCredential<AuthenticatorAssertionResponse> credential = buildAssertionCredential(request);
+        UserCredential storedCred = verifyAssertionAndUpdate(challenge, request.rawId(), request.id(), credential);
+
+        if (!storedCred.getUser().getId().equals(expectedUserId)) {
+            log.warn("Login 2FA: credential owner userId={} does not match expected userId={}",
+                    storedCred.getUser().getId(), expectedUserId);
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Passkey verification failed");
+        }
+
+        log.info("Login 2FA passkey verification success: userId={} credentialId={}",
+                expectedUserId, request.id());
     }
 
     // =========================================================================
