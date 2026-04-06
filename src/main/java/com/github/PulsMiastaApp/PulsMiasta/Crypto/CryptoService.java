@@ -16,22 +16,27 @@ public class CryptoService {
     private final CryptoKeyProvider keyProvider;
 
     public EncryptedData encrypt(byte[] data) throws Exception {
-        SecretKey dek = KeyGenerator.getInstance("AES").generateKey();
+        KeyGenerator keyGen = KeyGenerator.getInstance("AES");
+        keyGen.init(256);
+        SecretKey dek = keyGen.generateKey();
 
-        var dataEnc = AesGcmCipher.encrypt(data, dek);
+        String kekName = keyProvider.getActiveKeyName();
+        byte[] aad = kekName.getBytes(StandardCharsets.UTF_8);
+
+        var dataEnc = AesGcmCipher.encrypt(data, dek, aad);
 
         SecretKey kek = keyProvider.getActiveKey();
         if (kek == null) {
             throw new EncryptionException("Active KEK not found");
         }
-        var dekEnc = AesGcmCipher.encrypt(dek.getEncoded(), kek);
+        var dekEnc = AesGcmCipher.encrypt(dek.getEncoded(), kek, aad);
 
         return new EncryptedData(
                 dataEnc.data(),
                 dekEnc.data(),
                 dekEnc.iv(),
                 dataEnc.iv(),
-                keyProvider.getActiveKeyName()
+                kekName
         );
     }
 
@@ -42,24 +47,30 @@ public class CryptoService {
             throw new EncryptionException("KEK not found: " + encryptedData.kekName());
         }
 
+        byte[] aad = encryptedData.kekName().getBytes(StandardCharsets.UTF_8);
+
         byte[] dekBytes = AesGcmCipher.decrypt(
                 encryptedData.encryptedDek(),
+                kek,
                 encryptedData.dekIv(),
-                kek
+                aad
         );
 
         SecretKey dek = new SecretKeySpec(dekBytes, "AES");
 
         return AesGcmCipher.decrypt(
                 encryptedData.ciphertext(),
+                dek,
                 encryptedData.iv(),
-                dek
+                aad
         );
     }
 
 
     public StreamEncryptedData prepareStreamEncryption() throws Exception {
-        SecretKey dek = KeyGenerator.getInstance("AES").generateKey();
+        KeyGenerator keyGen = KeyGenerator.getInstance("AES");
+        keyGen.init(256);
+        SecretKey dek = keyGen.generateKey();
 
         byte[] aad = keyProvider.getActiveKeyName().getBytes(StandardCharsets.UTF_8);
 
