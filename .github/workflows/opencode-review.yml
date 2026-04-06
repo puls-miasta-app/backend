@@ -18,7 +18,7 @@ jobs:
         env:
           ZHIPU_API_KEY: ${{ secrets.ZHIPU_API_KEY }}
         with:
-          model: zai-coding-plan/glm-4.7
+          model: zai-coding-plan/glm-5.1
           prompt: |
             Review this pull request:
             - Check for code quality issues

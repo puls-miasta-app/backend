@@ -62,10 +62,10 @@ public class FileCryptoService {
         if (dis.readInt() != 0x4D414731) {
             throw new IllegalArgumentException("Invalid file format");
         }
-        byte[] kekName = dis.readNBytes(dis.readByte());
-        byte[] dekIv = dis.readNBytes(dis.readByte());
-        byte[] encryptedDek = dis.readNBytes(dis.readShort());
-        byte[] dataIv = dis.readNBytes(dis.readByte());
+        byte[] kekName = dis.readNBytes(dis.readUnsignedByte());
+        byte[] dekIv = dis.readNBytes(dis.readUnsignedByte());
+        byte[] encryptedDek = dis.readNBytes(dis.readUnsignedShort());
+        byte[] dataIv = dis.readNBytes(dis.readUnsignedByte());
         Cipher cipher = cryptoService.prepareStreamDecryption(
                 new String(kekName, StandardCharsets.UTF_8),
                 encryptedDek,

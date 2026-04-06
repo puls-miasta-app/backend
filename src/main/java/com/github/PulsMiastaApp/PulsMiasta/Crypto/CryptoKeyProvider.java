@@ -54,6 +54,6 @@ public class CryptoKeyProvider {
     }
 
     public Map<String, SecretKey> getAllKeys() {
-        return keys;
+        return Map.copyOf(keys);
     }
 }

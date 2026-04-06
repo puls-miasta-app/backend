@@ -22,14 +22,13 @@ public class AesGcmCipher {
     }
 
     public static Encrypted encrypt(byte[] data, SecretKey key, byte[] aad) throws Exception {
-        byte[] iv = new byte[12];
-        SecureRandom random = new SecureRandom();
-        random.nextBytes(iv);
+        byte[] iv = new byte[IV_LEN];
+        SecureRandom.getInstanceStrong().nextBytes(iv);
 
         Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
-        GCMParameterSpec spec = new GCMParameterSpec(128, iv);
+        GCMParameterSpec spec = new GCMParameterSpec(TAG_BITS, iv);
         cipher.init(Cipher.ENCRYPT_MODE, key, spec);
-        cipher.updateAAD(aad); // tu jest AAD
+        cipher.updateAAD(aad);
         byte[] encrypted = cipher.doFinal(data);
 
         return new Encrypted(encrypted, iv);
@@ -43,7 +42,7 @@ public class AesGcmCipher {
 
     public static byte[] decrypt(byte[] cipherText, SecretKey key, byte[] iv, byte[] aad) throws Exception {
         Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
-        GCMParameterSpec spec = new GCMParameterSpec(128, iv);
+        GCMParameterSpec spec = new GCMParameterSpec(TAG_BITS, iv);
         cipher.init(Cipher.DECRYPT_MODE, key, spec);
         cipher.updateAAD(aad);
         return cipher.doFinal(cipherText);
@@ -63,7 +62,7 @@ public class AesGcmCipher {
 
     public static Cipher decryptCipher(SecretKey key, byte[] iv, byte[] aad) throws Exception {
         Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
-        GCMParameterSpec spec = new GCMParameterSpec(128, iv);
+        GCMParameterSpec spec = new GCMParameterSpec(TAG_BITS, iv);
         cipher.init(Cipher.DECRYPT_MODE, key, spec);
         if (aad != null) {
             cipher.updateAAD(aad);
