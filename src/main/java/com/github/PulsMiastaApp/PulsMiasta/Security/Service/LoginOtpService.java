@@ -93,8 +93,8 @@ public class LoginOtpService {
             throw new IllegalArgumentException("firstName cannot be null or empty");
         }
 
-        String sentKey = SENT_PREFIX + userId;
-        if (Boolean.TRUE.equals(redisTemplate.hasKey(sentKey))) {
+        Boolean wasSet = redisTemplate.opsForValue().setIfAbsent(SENT_PREFIX + userId, Instant.now().toString(), cooldown);
+        if (Boolean.FALSE.equals(wasSet)) {
             log.debug("Login OTP send rejected — cooldown active for userId={}", userId);
             throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,
                     "Please wait before requesting another code");
@@ -109,7 +109,6 @@ public class LoginOtpService {
         try {
             sendEmail(email, firstName, code);
             redisTemplate.opsForValue().set(OTP_PREFIX + userId, code, otpTtl);
-            redisTemplate.opsForValue().set(SENT_PREFIX + userId, Instant.now().toString(), cooldown);
             redisTemplate.delete(ATTEMPTS_PREFIX + userId);
         } catch (Exception e) {
             log.error("Failed to send login OTP email to userId={}: {}", userId, e.getMessage(), e);

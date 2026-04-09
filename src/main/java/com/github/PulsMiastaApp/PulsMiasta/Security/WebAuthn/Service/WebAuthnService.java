@@ -345,18 +345,6 @@ public class WebAuthnService {
     // =========================================================================
 
     /**
-     * Starts a passkey authentication ceremony scoped to a specific user's credentials.
-     * <p>
-     * Unlike {@link #beginAuthentication} (which uses the discoverable/empty-allow flow),
-     * this method populates {@code allowCredentials} with only the given user's registered
-     * passkeys. This ensures that only the currently authenticated user can satisfy the
-     * sudo mode challenge — an attacker cannot use a different user's passkey.
-     *
-     * @param userId     the authenticated user's ID
-     * @param sessionKey an opaque key for this ceremony (returned to the client to echo back)
-     * @return the request options the client passes to {@code navigator.credentials.get()}
-     */
-    /**
      * Starts a passkey authentication ceremony scoped to a specific user's credentials,
      * for use as a 2FA login step. Identical mechanism to sudo authentication.
      *
