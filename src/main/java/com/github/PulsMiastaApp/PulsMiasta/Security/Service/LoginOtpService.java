@@ -74,14 +74,14 @@ public class LoginOtpService {
     }
 
     /**
-     * Generates and emails a 6-digit OTP for login 2FA verification.
-     * Enforces a per-user cooldown to prevent email flooding.
+     * Validates inputs and checks cooldown synchronously, then sends the OTP email asynchronously.
+     * This ensures the caller gets immediate feedback on cooldown violations while keeping
+     * email delivery non-blocking.
      *
      * @param userId    the user's ID
      * @param email     email address to send the code to
      * @param firstName the user's first name (used in email greeting)
      */
-    @Async
     public void sendOtp(Long userId, String email, String firstName) {
         if (userId == null) {
             throw new IllegalArgumentException("userId cannot be null");
@@ -101,7 +101,11 @@ public class LoginOtpService {
         }
 
         String code = generateCode();
+        sendOtpAsync(userId, email, firstName, code);
+    }
 
+    @Async
+    protected void sendOtpAsync(Long userId, String email, String firstName, String code) {
         try {
             sendEmail(email, firstName, code);
             redisTemplate.opsForValue().set(OTP_PREFIX + userId, code, otpTtl);
@@ -109,8 +113,6 @@ public class LoginOtpService {
             redisTemplate.delete(ATTEMPTS_PREFIX + userId);
         } catch (Exception e) {
             log.error("Failed to send login OTP email to userId={}: {}", userId, e.getMessage(), e);
-            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR,
-                    "Failed to send verification code. Please try again.");
         }
     }
 

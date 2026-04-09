@@ -163,12 +163,15 @@ public class AuthController {
 
         rateLimitService.checkRateLimit(httpRequest, 5, Duration.ofMinutes(1));
 
-        Long userId = twoFactorPendingService.consumePendingToken(request.pendingToken());
+        Long userId = twoFactorPendingService.validatePendingToken(request.pendingToken());
+        requireMethod(request.pendingToken(), "TOTP");
         User user = authService.findById(userId);
 
         if (!totpService.isValidCode(user.getTotpSecret(), request.totpCode())) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid TOTP code");
         }
+
+        twoFactorPendingService.consumePendingToken(request.pendingToken());
 
         AuthResult result = authService.completeLoginWithSession(userId, request.rememberMe(), request.clientType());
         AuthTokenFilter.applyAuthCookies(response, result, request.rememberMe(),
@@ -195,6 +198,7 @@ public class AuthController {
         rateLimitService.checkRateLimit(httpRequest, 5, Duration.ofMinutes(1));
 
         Long userId = twoFactorPendingService.validatePendingToken(request.pendingToken());
+        requireMethod(request.pendingToken(), "EMAIL_OTP");
         User user = authService.findById(userId);
         loginOtpService.sendOtp(user.getId(), user.getEmail(), user.getFirstName());
 
@@ -214,8 +218,11 @@ public class AuthController {
 
         rateLimitService.checkRateLimit(httpRequest, 5, Duration.ofMinutes(1));
 
-        Long userId = twoFactorPendingService.consumePendingToken(request.pendingToken());
+        Long userId = twoFactorPendingService.validatePendingToken(request.pendingToken());
+        requireMethod(request.pendingToken(), "EMAIL_OTP");
         loginOtpService.verifyOtp(userId, request.code());
+
+        twoFactorPendingService.consumePendingToken(request.pendingToken());
 
         AuthResult result = authService.completeLoginWithSession(userId, request.rememberMe(), request.clientType());
         AuthTokenFilter.applyAuthCookies(response, result, request.rememberMe(),
@@ -242,6 +249,7 @@ public class AuthController {
         rateLimitService.checkRateLimit(httpRequest, 5, Duration.ofMinutes(1));
 
         Long userId = twoFactorPendingService.validatePendingToken(request.pendingToken());
+        requireMethod(request.pendingToken(), "PASSKEY");
         String sessionKey = UUID.randomUUID().toString();
         AuthenticationBeginResponse options = webAuthnService.beginLoginAuthentication(userId, sessionKey);
 
@@ -261,13 +269,16 @@ public class AuthController {
 
         rateLimitService.checkRateLimit(httpRequest, 5, Duration.ofMinutes(1));
 
-        Long userId = twoFactorPendingService.consumePendingToken(request.pendingToken());
+        Long userId = twoFactorPendingService.validatePendingToken(request.pendingToken());
+        requireMethod(request.pendingToken(), "PASSKEY");
 
         AuthenticationFinishRequest authFinishRequest = new AuthenticationFinishRequest(
                 request.sessionKey(), request.id(), request.rawId(), request.type(),
                 request.response(), request.rememberMe(), request.clientType());
 
         webAuthnService.verifyForLogin(authFinishRequest, userId);
+
+        twoFactorPendingService.consumePendingToken(request.pendingToken());
 
         AuthResult result = authService.completeLoginWithSession(userId, request.rememberMe(), request.clientType());
         AuthTokenFilter.applyAuthCookies(response, result, request.rememberMe(),
@@ -550,6 +561,14 @@ public class AuthController {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication required");
         }
         return authService.findById(principal.id());
+    }
+
+    private void requireMethod(String pendingToken, String method) {
+        List<String> methods = twoFactorPendingService.getAvailableMethods(pendingToken);
+        if (!methods.contains(method)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    method + " is not available for this account");
+        }
     }
 
     /**

@@ -100,12 +100,11 @@ public class TwoFactorPendingService {
      * @throws ResponseStatusException 401 if the token is unknown or expired
      */
     public Long consumePendingToken(String token) {
-        String userIdStr = redisTemplate.opsForValue().get(PREFIX + token);
+        String userIdStr = redisTemplate.opsForValue().getAndDelete(PREFIX + token);
+        redisTemplate.delete(METHODS_PREFIX + token);
         if (userIdStr == null) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid or expired 2FA session");
         }
-        redisTemplate.delete(PREFIX + token);
-        redisTemplate.delete(METHODS_PREFIX + token);
         return Long.valueOf(userIdStr);
     }
 }
