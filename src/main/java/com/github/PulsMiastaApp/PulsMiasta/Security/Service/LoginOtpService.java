@@ -20,23 +20,23 @@ import java.time.Duration;
 import java.time.Instant;
 
 /**
- * Manages 6-digit email OTP codes for sudo mode activation.
+ * Manages 6-digit email OTP codes for login 2FA verification.
  * <p>
  * Redis key layout:
  * <ul>
- *   <li>{@code sudo_otp:{userId}} → the OTP code (TTL = configurable, default 10 min)</li>
- *   <li>{@code sudo_otp_sent:{userId}} → timestamp of last send (TTL = cooldown, default 60 s)</li>
- *   <li>{@code sudo_otp_attempts:{userId}} → failure count (TTL = code TTL)</li>
+ *   <li>{@code login_otp:{userId}} → the OTP code (TTL = configurable, default 10 min)</li>
+ *   <li>{@code login_otp_sent:{userId}} → timestamp of last send (TTL = cooldown, default 60 s)</li>
+ *   <li>{@code login_otp_attempts:{userId}} → failure count (TTL = code TTL)</li>
  * </ul>
  */
 @Slf4j
 @Service
-public class SudoOtpService {
+public class LoginOtpService {
 
-    private static final String OTP_PREFIX = "sudo_otp:";
-    private static final String SENT_PREFIX = "sudo_otp_sent:";
-    private static final String ATTEMPTS_PREFIX = "sudo_otp_attempts:";
-    private static final String TEMPLATE_PATH = "templates/email/sudo-otp.html";
+    private static final String OTP_PREFIX = "login_otp:";
+    private static final String SENT_PREFIX = "login_otp_sent:";
+    private static final String ATTEMPTS_PREFIX = "login_otp_attempts:";
+    private static final String TEMPLATE_PATH = "templates/email/login-otp.html";
 
     private final JavaMailSender mailSender;
     private final StringRedisTemplate redisTemplate;
@@ -47,22 +47,22 @@ public class SudoOtpService {
     private final int maxAttempts;
     private final String mailFrom;
 
-    public SudoOtpService(
+    public LoginOtpService(
             JavaMailSender mailSender,
             StringRedisTemplate redisTemplate,
-            @Value("${auth.sudo-otp.ttl-minutes:10}") long ttlMinutes,
-            @Value("${auth.sudo-otp.cooldown-seconds:60}") long cooldownSeconds,
-            @Value("${auth.sudo-otp.max-attempts:3}") int maxAttempts,
+            @Value("${auth.login-otp.ttl-minutes:10}") long ttlMinutes,
+            @Value("${auth.login-otp.cooldown-seconds:60}") long cooldownSeconds,
+            @Value("${auth.login-otp.max-attempts:3}") int maxAttempts,
             @Value("${app.mail.from}") String mailFrom
     ) {
         if (ttlMinutes <= 0) {
-            throw new IllegalArgumentException("auth.sudo-otp.ttl-minutes must be greater than 0");
+            throw new IllegalArgumentException("auth.login-otp.ttl-minutes must be greater than 0");
         }
         if (cooldownSeconds <= 0) {
-            throw new IllegalArgumentException("auth.sudo-otp.cooldown-seconds must be greater than 0");
+            throw new IllegalArgumentException("auth.login-otp.cooldown-seconds must be greater than 0");
         }
         if (maxAttempts <= 0) {
-            throw new IllegalArgumentException("auth.sudo-otp.max-attempts must be greater than 0");
+            throw new IllegalArgumentException("auth.login-otp.max-attempts must be greater than 0");
         }
 
         this.mailSender = mailSender;
@@ -78,7 +78,7 @@ public class SudoOtpService {
      * This ensures the caller gets immediate feedback on cooldown violations while keeping
      * email delivery non-blocking.
      *
-     * @param userId    the authenticated user's ID
+     * @param userId    the user's ID
      * @param email     email address to send the code to
      * @param firstName the user's first name (used in email greeting)
      */
@@ -95,7 +95,7 @@ public class SudoOtpService {
 
         Boolean wasSet = redisTemplate.opsForValue().setIfAbsent(SENT_PREFIX + userId, Instant.now().toString(), cooldown);
         if (Boolean.FALSE.equals(wasSet)) {
-            log.debug("Sudo OTP send rejected — cooldown active for userId={}", userId);
+            log.debug("Login OTP send rejected — cooldown active for userId={}", userId);
             throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,
                     "Please wait before requesting another code");
         }
@@ -111,18 +111,15 @@ public class SudoOtpService {
             redisTemplate.opsForValue().set(OTP_PREFIX + userId, code, otpTtl);
             redisTemplate.delete(ATTEMPTS_PREFIX + userId);
         } catch (Exception e) {
-            log.error("Failed to send sudo OTP email to userId={}: {}", userId, e.getMessage(), e);
+            log.error("Failed to send login OTP email to userId={}: {}", userId, e.getMessage(), e);
         }
     }
 
     /**
      * Verifies the OTP submitted by the user.
      * Increments the failure counter on mismatch; deletes the code on success.
-     * <p>
-     * Uses Redis INCR for atomic increment to prevent race conditions in concurrent requests.
-     * Validates input parameters before processing.
      *
-     * @param userId the authenticated user's ID
+     * @param userId the user's ID
      * @param code   the 6-digit code submitted by the user
      * @throws ResponseStatusException 400 if code invalid/expired, 429 if too many attempts
      */
@@ -176,11 +173,11 @@ public class SudoOtpService {
         MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
         helper.setFrom(mailFrom);
         helper.setTo(to);
-        helper.setSubject("Kod weryfikacyjny sudo — PulsMiasta");
+        helper.setSubject("Kod logowania — PulsMiasta");
         helper.setText(html, true);
 
         mailSender.send(message);
-        log.info("Sudo OTP email sent to {}", to);
+        log.info("Login OTP email sent to {}", to);
     }
 
     private String loadTemplate() throws IOException {

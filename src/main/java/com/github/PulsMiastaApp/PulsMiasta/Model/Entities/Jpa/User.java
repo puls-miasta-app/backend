@@ -63,6 +63,13 @@ public class User {
     private boolean totpEnabled = false;
 
     /**
+     * Whether email OTP 2FA is active for this account.
+     * When true: login requires a one-time code sent to the user's email.
+     */
+    @Column(name = "email_otp_enabled", nullable = false)
+    private boolean emailOtpEnabled = false;
+
+    /**
      * Ensures a webauthnUserHandle is assigned. Call before any WebAuthn ceremony.
      * Idempotent — safe to call multiple times.
      */

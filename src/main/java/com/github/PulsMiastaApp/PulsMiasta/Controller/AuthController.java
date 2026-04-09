@@ -6,6 +6,7 @@ import com.github.PulsMiastaApp.PulsMiasta.Security.Filter.AuthTokenFilter;
 import com.github.PulsMiastaApp.PulsMiasta.Security.Model.AuthPrincipal;
 import com.github.PulsMiastaApp.PulsMiasta.Security.Service.*;
 import com.github.PulsMiastaApp.PulsMiasta.Security.WebAuthn.DTO.AuthenticationBeginResponse;
+import com.github.PulsMiastaApp.PulsMiasta.Security.WebAuthn.DTO.AuthenticationFinishRequest;
 import com.github.PulsMiastaApp.PulsMiasta.Security.WebAuthn.DTO.SudoFinishRequest;
 import com.github.PulsMiastaApp.PulsMiasta.Security.WebAuthn.Service.WebAuthnService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -30,6 +31,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Duration;
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -44,6 +46,7 @@ public class AuthController {
     private final TwoFactorPendingService twoFactorPendingService;
     private final TotpService totpService;
     private final SudoOtpService sudoOtpService;
+    private final LoginOtpService loginOtpService;
     private final RateLimitService rateLimitService;
 
     @Value("${auth.session.ttl-minutes}")
@@ -136,7 +139,8 @@ public class AuthController {
                 yield ResponseEntity.ok(SuccessResponse.of("Logged in successfully"));
             }
             case LoginResult.TwoFactorRequired pending -> ResponseEntity.status(HttpStatus.ACCEPTED)
-                    .body(SuccessResponse.of(new TwoFactorRequiredResponse(pending.pendingToken())));
+                    .body(SuccessResponse.of(new TwoFactorRequiredResponse(
+                            pending.pendingToken(), pending.availableMethods())));
         };
     }
 
@@ -159,12 +163,122 @@ public class AuthController {
 
         rateLimitService.checkRateLimit(httpRequest, 5, Duration.ofMinutes(1));
 
-        Long userId = twoFactorPendingService.consumePendingToken(request.pendingToken());
+        Long userId = twoFactorPendingService.validatePendingToken(request.pendingToken());
+        requireMethod(request.pendingToken(), "TOTP");
         User user = authService.findById(userId);
 
         if (!totpService.isValidCode(user.getTotpSecret(), request.totpCode())) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid TOTP code");
         }
+
+        twoFactorPendingService.consumePendingToken(request.pendingToken());
+
+        AuthResult result = authService.completeLoginWithSession(userId, request.rememberMe(), request.clientType());
+        AuthTokenFilter.applyAuthCookies(response, result, request.rememberMe(),
+                request.clientType() == ClientType.MOBILE,
+                sessionTtlMinutes, rememberMeWebDays, rememberMeMobileDays);
+
+        return ResponseEntity.ok(SuccessResponse.of("Logged in successfully"));
+    }
+
+    // =========================================================================
+    // Login (step 2 — Email OTP)
+    // =========================================================================
+
+    /**
+     * Sends a 6-digit OTP code to the user's email address.
+     * Requires a valid {@code pendingToken} from step 1 (non-consuming).
+     */
+    @PostMapping("/login/otp/send")
+    @Operation(summary = "Send email OTP for login 2FA (step 2 after 202 from /login)")
+    public ResponseEntity<SuccessResponse<String>> loginOtpSend(
+            @Valid @RequestBody PendingTokenRequest request,
+            HttpServletRequest httpRequest) {
+
+        rateLimitService.checkRateLimit(httpRequest, 5, Duration.ofMinutes(1));
+
+        Long userId = twoFactorPendingService.validatePendingToken(request.pendingToken());
+        requireMethod(request.pendingToken(), "EMAIL_OTP");
+        User user = authService.findById(userId);
+        loginOtpService.sendOtp(user.getId(), user.getEmail(), user.getFirstName());
+
+        return ResponseEntity.ok(SuccessResponse.of("Verification code sent to " + user.getEmail()));
+    }
+
+    /**
+     * Verifies the 6-digit OTP code and completes login.
+     * Consumes the {@code pendingToken} on success.
+     */
+    @PostMapping("/login/otp/verify")
+    @Operation(summary = "Verify email OTP and complete login (step 2 after 202 from /login)")
+    public ResponseEntity<SuccessResponse<String>> loginOtpVerify(
+            @Valid @RequestBody LoginOtpVerifyRequest request,
+            HttpServletResponse response,
+            HttpServletRequest httpRequest) {
+
+        rateLimitService.checkRateLimit(httpRequest, 5, Duration.ofMinutes(1));
+
+        Long userId = twoFactorPendingService.validatePendingToken(request.pendingToken());
+        requireMethod(request.pendingToken(), "EMAIL_OTP");
+        loginOtpService.verifyOtp(userId, request.code());
+
+        twoFactorPendingService.consumePendingToken(request.pendingToken());
+
+        AuthResult result = authService.completeLoginWithSession(userId, request.rememberMe(), request.clientType());
+        AuthTokenFilter.applyAuthCookies(response, result, request.rememberMe(),
+                request.clientType() == ClientType.MOBILE,
+                sessionTtlMinutes, rememberMeWebDays, rememberMeMobileDays);
+
+        return ResponseEntity.ok(SuccessResponse.of("Logged in successfully"));
+    }
+
+    // =========================================================================
+    // Login (step 2 — Passkey)
+    // =========================================================================
+
+    /**
+     * Begins a passkey authentication ceremony scoped to the user from the pending token.
+     * Requires a valid {@code pendingToken} from step 1 (non-consuming).
+     */
+    @PostMapping("/login/passkey/begin")
+    @Operation(summary = "Begin passkey verification for login 2FA (step 2 after 202 from /login)")
+    public ResponseEntity<SuccessResponse<AuthenticationBeginResponse>> loginPasskeyBegin(
+            @Valid @RequestBody PendingTokenRequest request,
+            HttpServletRequest httpRequest) {
+
+        rateLimitService.checkRateLimit(httpRequest, 5, Duration.ofMinutes(1));
+
+        Long userId = twoFactorPendingService.validatePendingToken(request.pendingToken());
+        requireMethod(request.pendingToken(), "PASSKEY");
+        String sessionKey = UUID.randomUUID().toString();
+        AuthenticationBeginResponse options = webAuthnService.beginLoginAuthentication(userId, sessionKey);
+
+        return ResponseEntity.ok(SuccessResponse.of(options));
+    }
+
+    /**
+     * Completes the passkey authentication ceremony and logs in the user.
+     * Consumes the {@code pendingToken} on success.
+     */
+    @PostMapping("/login/passkey/finish")
+    @Operation(summary = "Complete passkey verification and login (step 2 after 202 from /login)")
+    public ResponseEntity<SuccessResponse<String>> loginPasskeyFinish(
+            @Valid @RequestBody LoginPasskeyFinishRequest request,
+            HttpServletResponse response,
+            HttpServletRequest httpRequest) {
+
+        rateLimitService.checkRateLimit(httpRequest, 5, Duration.ofMinutes(1));
+
+        Long userId = twoFactorPendingService.validatePendingToken(request.pendingToken());
+        requireMethod(request.pendingToken(), "PASSKEY");
+
+        AuthenticationFinishRequest authFinishRequest = new AuthenticationFinishRequest(
+                request.sessionKey(), request.id(), request.rawId(), request.type(),
+                request.response(), request.rememberMe(), request.clientType());
+
+        webAuthnService.verifyForLogin(authFinishRequest, userId);
+
+        twoFactorPendingService.consumePendingToken(request.pendingToken());
 
         AuthResult result = authService.completeLoginWithSession(userId, request.rememberMe(), request.clientType());
         AuthTokenFilter.applyAuthCookies(response, result, request.rememberMe(),
@@ -216,7 +330,7 @@ public class AuthController {
         int passkeysCount = webAuthnService.listCredentials(principal.id()).size();
 
         return ResponseEntity.ok(SuccessResponse.of(
-                new TwoFactorMethodsResponse(user.isTotpEnabled(), passkeysCount)));
+                new TwoFactorMethodsResponse(user.isTotpEnabled(), user.isEmailOtpEnabled(), passkeysCount)));
     }
 
     // =========================================================================
@@ -359,13 +473,38 @@ public class AuthController {
     // DTOs
     // =========================================================================
 
-    record TwoFactorMethodsResponse(boolean totpEnabled, int passkeysCount) {
+    record TwoFactorMethodsResponse(boolean totpEnabled, boolean emailOtpEnabled, int passkeysCount) {
     }
 
     record SudoStatusResponse(boolean isActive) {
     }
 
-    record TwoFactorRequiredResponse(String pendingToken) {
+    record TwoFactorRequiredResponse(String pendingToken, List<String> availableMethods) {
+    }
+
+    record PendingTokenRequest(
+            @NotBlank String pendingToken
+    ) {
+    }
+
+    record LoginOtpVerifyRequest(
+            @NotBlank String pendingToken,
+            @NotBlank @Pattern(regexp = "\\d{6}", message = "Code must be exactly 6 digits") String code,
+            boolean rememberMe,
+            ClientType clientType
+    ) {
+    }
+
+    record LoginPasskeyFinishRequest(
+            @NotBlank String pendingToken,
+            @NotBlank String sessionKey,
+            @NotBlank String id,
+            @NotBlank String rawId,
+            @NotBlank String type,
+            @jakarta.validation.constraints.NotNull AuthenticationFinishRequest.AssertionResponse response,
+            boolean rememberMe,
+            @jakarta.validation.constraints.NotNull ClientType clientType
+    ) {
     }
 
     record LoginTotpRequest(
@@ -422,6 +561,14 @@ public class AuthController {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication required");
         }
         return authService.findById(principal.id());
+    }
+
+    private void requireMethod(String pendingToken, String method) {
+        List<String> methods = twoFactorPendingService.getAvailableMethods(pendingToken);
+        if (!methods.contains(method)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    method + " is not available for this account");
+        }
     }
 
     /**
