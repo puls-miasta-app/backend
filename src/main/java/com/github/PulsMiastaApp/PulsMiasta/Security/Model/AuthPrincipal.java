@@ -18,7 +18,8 @@ public record AuthPrincipal(
         String email,
         String firstName,
         String lastName,
-        String role
+        String role,
+        boolean emailVerified
 ) implements UserDetails {
 
     public static AuthPrincipal from(User user) {
@@ -27,7 +28,8 @@ public record AuthPrincipal(
                 user.getEmail(),
                 user.getFirstName(),
                 user.getLastName(),
-                user.getRole()
+                user.getRole(),
+                user.isEmailVerified()
         );
     }
 
