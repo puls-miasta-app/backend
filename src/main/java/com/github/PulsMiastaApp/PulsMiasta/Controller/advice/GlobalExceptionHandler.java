@@ -26,7 +26,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(EncryptionException.class)
     public ResponseEntity<ErrorResponse> handleEncryption(EncryptionException ex) {
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(ErrorResponse.of("Encryption error: " + ex.getMessage(), "encryption_error"));
+                .body(ErrorResponse.of("Encryption error", "encryption_error"));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

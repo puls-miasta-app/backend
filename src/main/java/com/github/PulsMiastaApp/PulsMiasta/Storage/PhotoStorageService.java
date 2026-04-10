@@ -45,8 +45,51 @@ public class PhotoStorageService {
         }
         String contentType = file.getContentType();
         if (contentType == null || !ALLOWED_CONTENT_TYPES.contains(contentType.toLowerCase())) {
-            throw new StorageException("Unsupported file type: " + contentType
-                    + ". Allowed: " + String.join(", ", ALLOWED_CONTENT_TYPES));
+            throw new StorageException("Unsupported file type");
+        }
+        validateMagicBytes(file, contentType.toLowerCase());
+    }
+
+    /**
+     * Defense-in-depth: verify actual file contents against declared MIME type
+     * by checking magic bytes. Prevents clients from uploading arbitrary files
+     * with a spoofed Content-Type header.
+     */
+    private void validateMagicBytes(MultipartFile file, String contentType) {
+        byte[] head;
+        try (InputStream in = file.getInputStream()) {
+            head = in.readNBytes(12);
+        } catch (IOException e) {
+            throw new StorageException("Failed to read uploaded file");
+        }
+        if (head.length < 4) {
+            throw new StorageException("File too small to validate");
+        }
+
+        boolean valid = switch (contentType) {
+            case "image/jpeg" -> head[0] == (byte) 0xFF && head[1] == (byte) 0xD8 && head[2] == (byte) 0xFF;
+            case "image/png" -> head[0] == (byte) 0x89 && head[1] == 'P' && head[2] == 'N' && head[3] == 'G';
+            case "image/webp" -> head.length >= 12
+                    && head[0] == 'R' && head[1] == 'I' && head[2] == 'F' && head[3] == 'F'
+                    && head[8] == 'W' && head[9] == 'E' && head[10] == 'B' && head[11] == 'P';
+            case "image/heic", "image/heif" -> head.length >= 12
+                    && head[4] == 'f' && head[5] == 't' && head[6] == 'y' && head[7] == 'p';
+            default -> false;
+        };
+
+        if (!valid) {
+            throw new StorageException("File content does not match declared type");
+        }
+    }
+
+    public void deleteObject(String key) {
+        try {
+            s3Client.deleteObject(DeleteObjectRequest.builder()
+                    .bucket(storageProperties.getBucket())
+                    .key(key)
+                    .build());
+        } catch (Exception e) {
+            log.warn("Failed to delete orphaned object: key={}", key, e);
         }
     }
 
