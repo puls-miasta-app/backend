@@ -23,9 +23,6 @@ public class GeminiProperties {
     /** Request timeout in seconds. */
     private int timeoutSeconds = 30;
 
-    /** If true, report creation fails when Gemini cannot be reached. If false, the report is saved without AI fields. */
-    private boolean failOnError = false;
-
     /**
      * Minimum confidence (0..1) required to accept Gemini's analysis. Below this
      * threshold the report is saved WITHOUT AI-assigned category/priority/description

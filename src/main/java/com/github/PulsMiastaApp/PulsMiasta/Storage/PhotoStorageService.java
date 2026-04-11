@@ -36,33 +36,31 @@ public class PhotoStorageService {
             "image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"
     );
 
-    public void validateFile(MultipartFile file) {
-        if (file.isEmpty()) {
+    /**
+     * Validate already-read bytes against the declared content type:
+     * size, MIME whitelist, and magic-byte sniffing for defense-in-depth.
+     */
+    private void validateRawBytes(byte[] bytes, String contentType) {
+        if (bytes == null || bytes.length == 0) {
             throw new StorageException("File is empty");
         }
-        if (file.getSize() > storageProperties.getMaxFileSize()) {
+        if (bytes.length > storageProperties.getMaxFileSize()) {
             throw new StorageException("File exceeds maximum size of %d MB"
                     .formatted(storageProperties.getMaxFileSize() / (1024 * 1024)));
         }
-        String contentType = file.getContentType();
         if (contentType == null || !ALLOWED_CONTENT_TYPES.contains(contentType.toLowerCase())) {
             throw new StorageException("Unsupported file type");
         }
-        validateMagicBytes(file, contentType.toLowerCase());
+        byte[] head = new byte[Math.min(12, bytes.length)];
+        System.arraycopy(bytes, 0, head, 0, head.length);
+        validateMagicBytes(head, contentType.toLowerCase());
     }
 
     /**
-     * Defense-in-depth: verify actual file contents against declared MIME type
-     * by checking magic bytes. Prevents clients from uploading arbitrary files
-     * with a spoofed Content-Type header.
+     * Defense-in-depth: verify the file's leading bytes against its declared MIME type.
+     * Prevents clients from uploading arbitrary files with a spoofed Content-Type header.
      */
-    private void validateMagicBytes(MultipartFile file, String contentType) {
-        byte[] head;
-        try (InputStream in = file.getInputStream()) {
-            head = in.readNBytes(12);
-        } catch (IOException e) {
-            throw new StorageException("Failed to read uploaded file");
-        }
+    private void validateMagicBytes(byte[] head, String contentType) {
         if (head.length < 4) {
             throw new StorageException("File too small to validate");
         }
@@ -116,14 +114,27 @@ public class PhotoStorageService {
         }
     }
 
-    public ReportPhoto uploadAndSavePhoto(MultipartFile file, User user, Report report) {
-        validateFile(file);
+    /**
+     * Upload a photo whose raw bytes have already been read from the request.
+     * Prefer this overload when the caller needs the same bytes for another
+     * purpose (e.g. async AI analysis) — it avoids calling
+     * {@link MultipartFile#getInputStream()} a second time.
+     */
+    public ReportPhoto uploadAndSavePhoto(
+            byte[] rawBytes,
+            String originalFilename,
+            String contentType,
+            User user,
+            Report report) {
 
-        String objectKey = buildObjectKey(user.getId(), file.getOriginalFilename());
+        validateRawBytes(rawBytes, contentType);
+
+        String objectKey = buildObjectKey(user.getId(), originalFilename);
+        long rawSize = rawBytes.length;
 
         try {
             ByteArrayOutputStream encryptedBuffer = new ByteArrayOutputStream();
-            try (InputStream raw = file.getInputStream()) {
+            try (ByteArrayInputStream raw = new ByteArrayInputStream(rawBytes)) {
                 fileCryptoService.encrypt(raw, encryptedBuffer);
             }
 
@@ -139,13 +150,13 @@ public class PhotoStorageService {
             photo.setUser(user);
             photo.setReport(report);
             photo.setObjectKey(objectKey);
-            photo.setOriginalFilename(file.getOriginalFilename());
-            photo.setContentType(file.getContentType());
-            photo.setFileSize(file.getSize());
+            photo.setOriginalFilename(originalFilename);
+            photo.setContentType(contentType);
+            photo.setFileSize(rawSize);
             reportPhotoRepository.save(photo);
 
             log.info("Photo uploaded: id={}, key={}, size={}, encrypted={}",
-                    photo.getId(), objectKey, file.getSize(), encryptedBytes.length);
+                    photo.getId(), objectKey, rawSize, encryptedBytes.length);
             return photo;
 
         } catch (StorageException e) {

@@ -51,10 +51,30 @@ public class ReportController {
             @AuthenticationPrincipal AuthPrincipal principal
     ) {
         requireEmailVerified(principal);
+        validateCoordinates(latitude, longitude);
 
         Report report = reportService.createReport(principal.id(), file, latitude, longitude, address);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(SuccessResponse.of(ReportMapper.toResponse(report)));
+    }
+
+    /**
+     * Guard against out-of-range WGS84 coordinates. An out-of-bounds latitude would
+     * poison the dedup bounding box via {@code cos(lat)} and {@code NaN} deltas, so
+     * we reject the whole request with 400 before touching the DB.
+     */
+    private static void validateCoordinates(Double latitude, Double longitude) {
+        if (latitude == null || longitude == null
+                || latitude.isNaN() || longitude.isNaN()
+                || latitude.isInfinite() || longitude.isInfinite()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "latitude and longitude are required");
+        }
+        if (latitude < -90.0 || latitude > 90.0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "latitude must be between -90 and 90");
+        }
+        if (longitude < -180.0 || longitude > 180.0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "longitude must be between -180 and 180");
+        }
     }
 
     @GetMapping("/me")

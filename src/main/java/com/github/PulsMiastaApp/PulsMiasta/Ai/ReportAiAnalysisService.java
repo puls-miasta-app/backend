@@ -5,6 +5,7 @@ import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.ReportPhoto;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Enums.ReportCategory;
 import com.github.PulsMiastaApp.PulsMiasta.Repository.ReportPhotoRepository;
 import com.github.PulsMiastaApp.PulsMiasta.Repository.ReportRepository;
+import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
@@ -37,6 +38,7 @@ public class ReportAiAnalysisService {
     private final GeminiProperties geminiProperties;
     private final ReportRepository reportRepository;
     private final ReportPhotoRepository reportPhotoRepository;
+    private final EntityManager entityManager;
 
     @Async("photoUploadExecutor")
     @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -122,8 +124,12 @@ public class ReportAiAnalysisService {
 
     /**
      * Move photos from {@code source} onto {@code primary}, bump the primary's counter,
-     * and mark the source as a merged stub so listings skip it. Uses {@code saveAll}
-     * so all the photo reparenting goes out as a single batched statement.
+     * and mark the source as a merged stub so listings skip it.
+     *
+     * <p>The reparenting UPDATEs are <em>flushed to the DB before</em> we touch the
+     * managed collections. This way, even if {@code Report.photos} were ever annotated
+     * with {@code orphanRemoval = true}, Hibernate cannot issue a DELETE against a row
+     * we just moved — because by then the row already belongs to the primary report.
      */
     private void mergeInto(Report source, Report primary) {
         log.info("Merging report {} into {} (category={}, duplicateCount={} -> {})",
@@ -135,12 +141,18 @@ public class ReportAiAnalysisService {
             photo.setReport(primary);
         }
         reportPhotoRepository.saveAll(movedPhotos);
+        // Force the UPDATE report_photos SET report_id = primary to hit the DB now,
+        // before the managed collections are mutated below.
+        entityManager.flush();
 
         primary.getPhotos().addAll(movedPhotos);
-        source.getPhotos().clear();
         primary.setDuplicateCount(primary.getDuplicateCount() + 1);
 
         source.setMergedIntoReportId(primary.getId());
+        // Intentionally do NOT mutate source.getPhotos() — the source is now a merged
+        // stub that nothing queries anyway, and touching the collection adds no value
+        // while exposing us to orphan-removal foot-guns.
+
         reportRepository.saveAll(List.of(primary, source));
     }
 

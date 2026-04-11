@@ -82,7 +82,13 @@ public class Report {
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;
 
-    @OneToMany(mappedBy = "report", cascade = CascadeType.ALL, orphanRemoval = true)
+    // No cascade + no orphanRemoval on purpose. Photos are persisted explicitly via
+    // ReportPhotoRepository. Crucially, the dedup merge moves photos from a source
+    // report onto its primary by reparenting them (photo.setReport(primary)) and
+    // clearing source.photos — with orphanRemoval=true that clear() would queue
+    // DELETEs for the very rows we just reparented, and the flush order is not
+    // deterministic, so photos could be wiped mid-merge.
+    @OneToMany(mappedBy = "report")
     private List<ReportPhoto> photos = new ArrayList<>();
 
     @PrePersist

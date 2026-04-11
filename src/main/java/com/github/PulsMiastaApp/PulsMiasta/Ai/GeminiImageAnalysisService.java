@@ -95,14 +95,15 @@ public class GeminiImageAnalysisService {
     }
 
     /**
-     * Analyse the given image. Returns null when analysis fails and the service is
-     * configured to be non-blocking (fail-open). Throws {@link ImageAnalysisException}
-     * when {@code ai.gemini.fail-on-error=true}.
+     * Analyse the given image. Always returns {@code null} on failure — this service
+     * runs asynchronously on a background thread after the report has already been
+     * persisted and the {@code 201} response sent, so there's no user request left to
+     * fail. Errors are logged and the caller leaves the AI fields blank.
      */
     public AiAnalysisResult analyse(byte[] imageBytes, String contentType) {
         if (properties.getApiKey() == null || properties.getApiKey().isBlank()) {
             log.warn("Gemini API key not configured, skipping image analysis");
-            return handleFailure("Gemini API key not configured", null);
+            return null;
         }
 
         Map<String, Object> body;
@@ -110,10 +111,9 @@ public class GeminiImageAnalysisService {
             body = buildRequestBody(imageBytes, contentType);
         } catch (Exception e) {
             log.error("Failed to build Gemini request body", e);
-            return handleFailure("Failed to build Gemini request body", e);
+            return null;
         }
 
-        RestClientException lastFailure = null;
         for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
             try {
                 Map<String, Object> response = restClient.post()
@@ -127,40 +127,34 @@ public class GeminiImageAnalysisService {
             } catch (HttpClientErrorException e) {
                 // 4xx from Gemini. Only 429 (rate limit) is worth retrying; other 4xx
                 // (bad request, unauthorized, forbidden) will just fail the same way.
-                lastFailure = e;
                 if (e.getStatusCode().value() != 429 || attempt == MAX_ATTEMPTS) {
                     log.error("Gemini API call failed with {}: {}", e.getStatusCode(), e.getMessage());
-                    return handleFailure("Gemini API call failed: " + e.getStatusCode(), e);
+                    return null;
                 }
                 log.warn("Gemini rate-limited (429), attempt {}/{}", attempt, MAX_ATTEMPTS);
                 sleepBackoff(attempt);
             } catch (HttpServerErrorException e) {
                 // 5xx — always retryable.
-                lastFailure = e;
                 if (attempt == MAX_ATTEMPTS) {
                     log.error("Gemini API 5xx after {} attempts: {}", MAX_ATTEMPTS, e.getMessage());
-                    return handleFailure("Gemini API unavailable", e);
+                    return null;
                 }
                 log.warn("Gemini 5xx ({}), attempt {}/{}", e.getStatusCode(), attempt, MAX_ATTEMPTS);
                 sleepBackoff(attempt);
             } catch (RestClientException e) {
                 // Network errors, timeouts, DNS failures — retryable.
-                lastFailure = e;
                 if (attempt == MAX_ATTEMPTS) {
                     log.error("Gemini API network failure after {} attempts: {}", MAX_ATTEMPTS, e.getMessage());
-                    return handleFailure("Gemini API call failed", e);
+                    return null;
                 }
                 log.warn("Gemini network error ({}), attempt {}/{}", e.getClass().getSimpleName(), attempt, MAX_ATTEMPTS);
                 sleepBackoff(attempt);
-            } catch (ImageAnalysisException e) {
-                throw e;
             } catch (Exception e) {
                 log.error("Unexpected error while analysing image with Gemini", e);
-                return handleFailure("Unexpected error during image analysis", e);
+                return null;
             }
         }
-        // Unreachable in practice — the loop either returns or throws.
-        return handleFailure("Gemini API call failed", lastFailure);
+        return null;
     }
 
     private void sleepBackoff(int attempt) {
@@ -170,13 +164,6 @@ public class GeminiImageAnalysisService {
         } catch (InterruptedException ie) {
             Thread.currentThread().interrupt();
         }
-    }
-
-    private AiAnalysisResult handleFailure(String message, Throwable cause) {
-        if (properties.isFailOnError()) {
-            throw new ImageAnalysisException(message, cause);
-        }
-        return null;
     }
 
     private Map<String, Object> buildRequestBody(byte[] imageBytes, String contentType) {
@@ -227,27 +214,32 @@ public class GeminiImageAnalysisService {
     @SuppressWarnings("unchecked")
     private AiAnalysisResult parseResponse(Map<String, Object> response) {
         if (response == null) {
-            throw new ImageAnalysisException("Empty response from Gemini");
+            log.warn("Empty response from Gemini");
+            return null;
         }
 
         List<Map<String, Object>> candidates = (List<Map<String, Object>>) response.get("candidates");
         if (candidates == null || candidates.isEmpty()) {
-            throw new ImageAnalysisException("No candidates in Gemini response: " + response);
+            log.warn("No candidates in Gemini response");
+            return null;
         }
 
         Map<String, Object> content = (Map<String, Object>) candidates.get(0).get("content");
         if (content == null) {
-            throw new ImageAnalysisException("No content in Gemini candidate");
+            log.warn("No content in Gemini candidate");
+            return null;
         }
 
         List<Map<String, Object>> parts = (List<Map<String, Object>>) content.get("parts");
         if (parts == null || parts.isEmpty()) {
-            throw new ImageAnalysisException("No parts in Gemini candidate");
+            log.warn("No parts in Gemini candidate");
+            return null;
         }
 
         Object textObj = parts.get(0).get("text");
         if (!(textObj instanceof String json) || json.isBlank()) {
-            throw new ImageAnalysisException("Missing text payload in Gemini response");
+            log.warn("Missing text payload in Gemini response");
+            return null;
         }
 
         try {
@@ -259,7 +251,8 @@ public class GeminiImageAnalysisService {
 
             return new AiAnalysisResult(category, priority, description, confidence);
         } catch (Exception e) {
-            throw new ImageAnalysisException("Failed to parse Gemini JSON payload: " + json, e);
+            log.warn("Failed to parse Gemini JSON payload: {}", json, e);
+            return null;
         }
     }
 

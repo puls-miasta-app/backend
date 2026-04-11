@@ -12,7 +12,6 @@ final class ReportMapper {
         var photos = report.getPhotos().stream()
                 .map(p -> new ReportResponse.PhotoInfo(
                         p.getId(),
-                        p.getObjectKey(),
                         p.getOriginalFilename(),
                         p.getContentType(),
                         p.getFileSize()

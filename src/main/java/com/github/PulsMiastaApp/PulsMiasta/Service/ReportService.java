@@ -47,11 +47,14 @@ public class ReportService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
 
-        // Grab the bytes up-front so we can hand them to the async AI worker.
-        // MultipartFile is tied to the request thread and is recycled once the
-        // controller returns, so reading later from a background thread is not safe.
+        // Read the file bytes exactly once. The same buffer is reused for:
+        //   1. validation + encryption + upload (see PhotoStorageService),
+        //   2. async AI analysis (MultipartFile is tied to the request thread and
+        //      gets recycled the moment the controller returns — reading it later
+        //      from a background thread is unsafe).
         byte[] imageBytes = readBytes(photo);
         String contentType = photo.getContentType();
+        String originalFilename = photo.getOriginalFilename();
 
         // Deduplication is deferred to the async AI worker — we need the AI-assigned
         // category before merging so a pothole and a broken lamp at the same spot stay
@@ -64,7 +67,8 @@ public class ReportService {
         report.setAddress(address);
         reportRepository.save(report);
 
-        ReportPhoto reportPhoto = photoStorageService.uploadAndSavePhoto(photo, user, report);
+        ReportPhoto reportPhoto = photoStorageService.uploadAndSavePhoto(
+                imageBytes, originalFilename, contentType, user, report);
         report.getPhotos().add(reportPhoto);
 
         registerRollbackCleanup(reportPhoto.getObjectKey());

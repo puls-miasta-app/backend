@@ -18,7 +18,6 @@ public record ReportResponse(
 ) {
     public record PhotoInfo(
             Long id,
-            String objectKey,
             String originalFilename,
             String contentType,
             Long fileSize
