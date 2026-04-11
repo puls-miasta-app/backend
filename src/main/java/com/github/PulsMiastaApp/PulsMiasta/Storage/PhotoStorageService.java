@@ -10,6 +10,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
+import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.*;
@@ -79,6 +80,28 @@ public class PhotoStorageService {
 
         if (!valid) {
             throw new StorageException("File content does not match declared type");
+        }
+    }
+
+    /**
+     * Stream a decrypted object from R2 straight to the given output (typically the
+     * HTTP response body). Uses true streaming — the encrypted blob is pulled from
+     * R2 in chunks, passed through the AES-GCM decryptor, and written to {@code out}
+     * without ever materialising the full file in memory.
+     */
+    public void streamDecrypted(String objectKey, OutputStream out) {
+        try (ResponseInputStream<GetObjectResponse> encrypted = s3Client.getObject(
+                GetObjectRequest.builder()
+                        .bucket(storageProperties.getBucket())
+                        .key(objectKey)
+                        .build())) {
+            fileCryptoService.decrypt(encrypted, out);
+        } catch (NoSuchKeyException e) {
+            throw new StorageException("Photo object not found: " + objectKey);
+        } catch (StorageException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new StorageException("Failed to download or decrypt photo", e);
         }
     }
 

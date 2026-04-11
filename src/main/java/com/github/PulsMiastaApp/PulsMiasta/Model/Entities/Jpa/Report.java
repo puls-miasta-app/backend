@@ -56,6 +56,18 @@ public class Report {
     @Column(name = "address")
     private String address;
 
+    /** How many separate submissions merged into this report (starts at 1 for the original). */
+    @Column(name = "duplicate_count", nullable = false, columnDefinition = "INT NOT NULL DEFAULT 1")
+    private Integer duplicateCount = 1;
+
+    /**
+     * If set, this report was merged into another one (the ID points at the primary).
+     * Merged stubs are hidden from user/admin listings and GET requests transparently
+     * follow the link to return the primary.
+     */
+    @Column(name = "merged_into_report_id")
+    private Long mergedIntoReportId;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
