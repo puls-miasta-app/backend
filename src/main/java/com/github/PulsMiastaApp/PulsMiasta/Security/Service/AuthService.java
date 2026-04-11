@@ -39,6 +39,9 @@ public class AuthService {
         user.setLastName(request.lastName());
         user.setEmail(request.email());
         user.setRole("USER");
+        // Domyślnie każdy nowy użytkownik ma włączone Email OTP. Może je później wyłączyć
+        // (endpoint to disable + wybór innej metody 2FA do zrobienia osobno).
+        user.setEmailOtpEnabled(true);
 
         userRepository.save(user);
         emailVerificationService.sendVerificationEmail(user);
@@ -83,19 +86,17 @@ public class AuthService {
 
         loginAttemptService.clearAttempts(clientIp, request.email());
 
-        List<String> availableMethods = buildAvailableMethods(user);
-        boolean requiresTwoFactor = !availableMethods.isEmpty() || "ADMIN".equals(user.getRole());
-        if (requiresTwoFactor) {
-            if (availableMethods.isEmpty()) {
-                // ADMIN without any 2FA method configured — block login
-                throw new ResponseStatusException(HttpStatus.FORBIDDEN,
-                        "ADMIN accounts must configure a 2FA method before logging in. " +
-                                "Please contact an administrator or use passkey login.");
-            }
-            String pendingToken = twoFactorPendingService.createPendingToken(user.getId(), availableMethods);
-            return new LoginResult.TwoFactorRequired(pendingToken, availableMethods);
+        // Migracja istniejących kont: jeżeli user nie ma Email OTP włączonego,
+        // włączamy mu to domyślnie (preferencja w profilu). Nie blokuje loginu —
+        // 2FA na kroku login/step 1 jest wyłączony, cookies lecą od razu tak jak w register.
+        if (!user.isEmailOtpEnabled()) {
+            user.setEmailOtpEnabled(true);
+            userRepository.save(user);
         }
 
+        // Brak gate'a 2FA — każdy udany login od razu dostaje sesję.
+        // 2FA flow (login/totp, login/otp/verify, login/passkey/finish) zostaje dostępny
+        // dla klientów, które chcą go użyć jawnie — patrz AuthController.
         AuthResult result = buildAuthResult(user.getId(), request.rememberMe(), request.clientType());
         return new LoginResult.SessionGranted(result.sessionToken(), result.rememberMeToken());
     }

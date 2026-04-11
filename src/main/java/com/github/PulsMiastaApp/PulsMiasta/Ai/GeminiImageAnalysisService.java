@@ -1,7 +1,7 @@
 package com.github.PulsMiastaApp.PulsMiasta.Ai;
 
-import com.github.PulsMiastaApp.PulsMiasta.Model.Enums.ReportCategory;
-import com.github.PulsMiastaApp.PulsMiasta.Model.Enums.ReportPriority;
+import com.github.PulsMiastaApp.PulsMiasta.Model.Enums.PulseCategory;
+import com.github.PulsMiastaApp.PulsMiasta.Model.Enums.PulsePriority;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.ParameterizedTypeReference;
@@ -25,15 +25,11 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * Calls Google Gemini to analyse a photo of a city infrastructure issue and extract
- * a structured {@link AiAnalysisResult} (category, priority, description).
+ * Wywołuje Google Gemini żeby przeanalizować zdjęcie zgłoszenia miejskiego i wypełnić
+ * pola pulse'a (kategoria, priorytet, tytuł, opis, notatka AI, hint do zdjęcia, heat).
  *
- * Uses the Generative Language REST API with Structured Output (responseSchema) so the model
- * is constrained to return valid JSON matching our domain enums.
- *
- * Note: Spring Boot 4 ships Jackson 3 under the new {@code tools.jackson.*} package
- * (the legacy {@code com.fasterxml.jackson.*} classes still exist on classpath but are
- * not wired into Spring's message converters anymore).
+ * <p>Używa Structured Output (responseSchema), żeby model zwracał JSON dopasowany do
+ * naszych enumów po stronie backendu.
  */
 @Slf4j
 @Service
@@ -43,20 +39,29 @@ public class GeminiImageAnalysisService {
             new ParameterizedTypeReference<>() {};
 
     private static final String PROMPT = """
-            Jesteś systemem analizującym zgłoszenia problemów miejskich w Polsce.
-            Użytkownik przesłał zdjęcie z prośbą o zgłoszenie usterki infrastruktury miejskiej
-            (np. dziura w drodze, uszkodzona latarnia, graffiti, dzikie wysypisko, uszkodzony znak, podtopienie).
+            Jesteś systemem analizującym zgłoszenia problemów miejskich w Polsce dla aplikacji PulsMiasta.
+            Użytkownik przesłał zdjęcie z prośbą o zgłoszenie usterki lub problemu w mieście.
 
-            Na podstawie zdjęcia zwróć:
-            - category: najlepiej pasująca kategoria z listy enumów
-            - priority: priorytet (LOW, MEDIUM, HIGH, CRITICAL) oceniając zagrożenie dla zdrowia,
-              bezpieczeństwa ruchu i skalę problemu
-            - description: krótki, rzeczowy opis problemu po polsku (maks. 2 zdania, bez emoji)
-            - confidence: liczba 0..1 określająca pewność, że zdjęcie faktycznie pokazuje
-              problem infrastruktury miejskiej (0 = zdjęcie nie na temat, 1 = jednoznaczne zgłoszenie)
+            Aplikacja rozróżnia trzy kategorie zgłoszeń:
+              - RUCH: problemy związane z ruchem i infrastrukturą drogową (dziury w jezdni,
+                uszkodzone znaki drogowe, zniszczone przejścia dla pieszych, korki, wypadki).
+              - BEZPIECZENSTWO: zagrożenia dla mieszkańców (uszkodzone latarnie, graffiti,
+                wandalizm, niebezpieczne miejsca, dzikie wysypiska blokujące przejście).
+              - ZIELEN: problemy związane z miejską zielenią i środowiskiem (wyłamane drzewa,
+                zaniedbane parki, śmieci w parkach/na zieleńcach, podtopienia, dzikie wysypiska w lasach).
 
-            Jeżeli zdjęcie nie przedstawia problemu infrastruktury miejskiej, ustaw category=OTHER,
-            priority=LOW, confidence bliskie 0 i w description krótko wyjaśnij, czego brakuje.
+            Na podstawie zdjęcia zwróć JSON o polach:
+            - category: najlepiej pasująca kategoria (RUCH, BEZPIECZENSTWO, ZIELEN)
+            - priority: PILNE lub STANDARD; PILNE = natychmiastowe zagrożenie dla zdrowia/bezpieczeństwa
+            - title: bardzo krótki tytuł (max 8 słów) po polsku, np. "Dziura w jezdni przy skrzyżowaniu"
+            - description: krótki opis problemu po polsku (max 2 zdania, bez emoji)
+            - aiNote: jednozdaniowa notatka serwisu AI skierowana do odbiorcy (np. "Utrudnienie dla kierowców")
+            - imageHint: krótki opis zawartości zdjęcia (max 6 słów, np. "Dziura w asfalcie, krawężnik")
+            - heat: jedno z: "Wysokie", "Średnie", "Niskie" — oszacowana skala zasięgu/ważności problemu
+            - confidence: liczba 0..1 określająca pewność, że zdjęcie faktycznie pokazuje problem miejski
+
+            Jeżeli zdjęcie nie przedstawia problemu miejskiego, ustaw category=RUCH (fallback),
+            priority=STANDARD, confidence bliskie 0 i w description krótko wyjaśnij, czego brakuje.
             """;
 
     private final GeminiProperties properties;
@@ -68,18 +73,13 @@ public class GeminiImageAnalysisService {
         this.properties = properties;
     }
 
-    /** Max attempts per call. One attempt = 1 try, so value 3 means 1 try + 2 retries. */
     private static final int MAX_ATTEMPTS = 3;
-
-    /** Base backoff between retries; doubled on each subsequent attempt. */
     private static final Duration RETRY_BASE_BACKOFF = Duration.ofMillis(500);
 
     @PostConstruct
     void init() {
         Duration timeout = Duration.ofSeconds(Math.max(1, properties.getTimeoutSeconds()));
 
-        // JDK HttpClient controls the TCP connect timeout. Read timeout is handled
-        // per-request by JdkClientHttpRequestFactory.setReadTimeout.
         HttpClient httpClient = HttpClient.newBuilder()
                 .connectTimeout(timeout)
                 .build();
@@ -96,7 +96,7 @@ public class GeminiImageAnalysisService {
 
     /**
      * Analyse the given image. Always returns {@code null} on failure — this service
-     * runs asynchronously on a background thread after the report has already been
+     * runs asynchronously on a background thread after the pulse has already been
      * persisted and the {@code 201} response sent, so there's no user request left to
      * fail. Errors are logged and the caller leaves the AI fields blank.
      */
@@ -125,8 +125,6 @@ public class GeminiImageAnalysisService {
 
                 return parseResponse(response);
             } catch (HttpClientErrorException e) {
-                // 4xx from Gemini. Only 429 (rate limit) is worth retrying; other 4xx
-                // (bad request, unauthorized, forbidden) will just fail the same way.
                 if (e.getStatusCode().value() != 429 || attempt == MAX_ATTEMPTS) {
                     log.error("Gemini API call failed with {}: {}", e.getStatusCode(), e.getMessage());
                     return null;
@@ -134,7 +132,6 @@ public class GeminiImageAnalysisService {
                 log.warn("Gemini rate-limited (429), attempt {}/{}", attempt, MAX_ATTEMPTS);
                 sleepBackoff(attempt);
             } catch (HttpServerErrorException e) {
-                // 5xx — always retryable.
                 if (attempt == MAX_ATTEMPTS) {
                     log.error("Gemini API 5xx after {} attempts: {}", MAX_ATTEMPTS, e.getMessage());
                     return null;
@@ -142,7 +139,6 @@ public class GeminiImageAnalysisService {
                 log.warn("Gemini 5xx ({}), attempt {}/{}", e.getStatusCode(), attempt, MAX_ATTEMPTS);
                 sleepBackoff(attempt);
             } catch (RestClientException e) {
-                // Network errors, timeouts, DNS failures — retryable.
                 if (attempt == MAX_ATTEMPTS) {
                     log.error("Gemini API network failure after {} attempts: {}", MAX_ATTEMPTS, e.getMessage());
                     return null;
@@ -192,22 +188,27 @@ public class GeminiImageAnalysisService {
     }
 
     private Map<String, Object> buildResponseSchema() {
-        List<String> categories = java.util.Arrays.stream(ReportCategory.values())
+        List<String> categories = java.util.Arrays.stream(PulseCategory.values())
                 .map(Enum::name).toList();
-        List<String> priorities = java.util.Arrays.stream(ReportPriority.values())
+        List<String> priorities = java.util.Arrays.stream(PulsePriority.values())
                 .map(Enum::name).toList();
+        List<String> heatValues = List.of("Wysokie", "Średnie", "Niskie");
 
-        // Named "schemaFields" to avoid shadowing the service's GeminiProperties field.
         Map<String, Object> schemaFields = new LinkedHashMap<>();
         schemaFields.put("category", Map.of("type", "STRING", "enum", categories));
         schemaFields.put("priority", Map.of("type", "STRING", "enum", priorities));
+        schemaFields.put("title", Map.of("type", "STRING"));
         schemaFields.put("description", Map.of("type", "STRING"));
+        schemaFields.put("aiNote", Map.of("type", "STRING"));
+        schemaFields.put("imageHint", Map.of("type", "STRING"));
+        schemaFields.put("heat", Map.of("type", "STRING", "enum", heatValues));
         schemaFields.put("confidence", Map.of("type", "NUMBER"));
 
         Map<String, Object> schema = new LinkedHashMap<>();
         schema.put("type", "OBJECT");
         schema.put("properties", schemaFields);
-        schema.put("required", List.of("category", "priority", "description", "confidence"));
+        schema.put("required", List.of("category", "priority", "title", "description",
+                "aiNote", "imageHint", "heat", "confidence"));
         return schema;
     }
 
@@ -244,12 +245,16 @@ public class GeminiImageAnalysisService {
 
         try {
             JsonNode parsed = objectMapper.readTree(json);
-            ReportCategory category = parseEnum(parsed.path("category").asString(null), ReportCategory.class, ReportCategory.OTHER);
-            ReportPriority priority = parseEnum(parsed.path("priority").asString(null), ReportPriority.class, ReportPriority.LOW);
+            PulseCategory category = parseEnum(parsed.path("category").asString(null), PulseCategory.class, PulseCategory.RUCH);
+            PulsePriority priority = parseEnum(parsed.path("priority").asString(null), PulsePriority.class, PulsePriority.STANDARD);
+            String title = parsed.path("title").asString("");
             String description = parsed.path("description").asString("");
+            String aiNote = parsed.path("aiNote").asString("");
+            String imageHint = parsed.path("imageHint").asString("");
+            String heat = parsed.path("heat").asString("Średnie");
             double confidence = parsed.path("confidence").asDouble(0.0);
 
-            return new AiAnalysisResult(category, priority, description, confidence);
+            return new AiAnalysisResult(category, priority, title, description, aiNote, imageHint, heat, confidence);
         } catch (Exception e) {
             log.warn("Failed to parse Gemini JSON payload: {}", json, e);
             return null;

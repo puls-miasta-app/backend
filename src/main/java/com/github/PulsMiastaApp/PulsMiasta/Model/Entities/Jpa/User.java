@@ -65,9 +65,13 @@ public class User {
     /**
      * Whether email OTP 2FA is active for this account.
      * When true: login requires a one-time code sent to the user's email.
+     * <p>
+     * Enabled by default for every new account — user może później wyłączyć i wybrać
+     * inną metodę (TOTP/passkey). Istniejące konta bez żadnej metody 2FA są
+     * automatycznie migrowane do email OTP przy pierwszym loginie (patrz {@code AuthService#login}).
      */
     @Column(name = "email_otp_enabled", nullable = false)
-    private boolean emailOtpEnabled = false;
+    private boolean emailOtpEnabled = true;
 
     /**
      * Ensures a webauthnUserHandle is assigned. Call before any WebAuthn ceremony.

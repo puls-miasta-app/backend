@@ -25,6 +25,11 @@ public class AuthTokenFilter extends OncePerRequestFilter {
     public static final String SESSION_COOKIE_NAME = "auth_token";
     public static final String REMEMBER_ME_COOKIE_NAME = "remember_me";
 
+    // Konfigurowalne cookie flags — defaulty dev-friendly (http localhost).
+    // Prod: ustaw auth.cookie.secure=true i auth.cookie.same-site=Strict (lub None gdy cross-site).
+    private static volatile boolean cookieSecure = false;
+    private static volatile String cookieSameSite = "Lax";
+
     private final TokenService tokenService;
     private final UserRepository userRepository;
     private final long sessionTtlSeconds;
@@ -32,11 +37,15 @@ public class AuthTokenFilter extends OncePerRequestFilter {
     public AuthTokenFilter(
             TokenService tokenService,
             UserRepository userRepository,
-            @Value("${auth.session.ttl-minutes}") long sessionMinutes
+            @Value("${auth.session.ttl-minutes}") long sessionMinutes,
+            @Value("${auth.cookie.secure:false}") boolean cookieSecureProp,
+            @Value("${auth.cookie.same-site:Lax}") String cookieSameSiteProp
     ) {
         this.tokenService = tokenService;
         this.userRepository = userRepository;
         this.sessionTtlSeconds = sessionMinutes * 60;
+        AuthTokenFilter.cookieSecure = cookieSecureProp;
+        AuthTokenFilter.cookieSameSite = cookieSameSiteProp;
     }
 
     @Override
@@ -83,9 +92,9 @@ public class AuthTokenFilter extends OncePerRequestFilter {
     public static void addCookie(HttpServletResponse response, String name, String value, int maxAgeSeconds) {
         Cookie cookie = new Cookie(name, value);
         cookie.setHttpOnly(true);
-        cookie.setSecure(true);
+        cookie.setSecure(cookieSecure);
         cookie.setPath("/");
-        cookie.setAttribute("SameSite", "Strict");
+        cookie.setAttribute("SameSite", cookieSameSite);
         cookie.setMaxAge(maxAgeSeconds);
         response.addCookie(cookie);
     }
@@ -93,9 +102,9 @@ public class AuthTokenFilter extends OncePerRequestFilter {
     public static void clearCookie(HttpServletResponse response, String name) {
         Cookie cookie = new Cookie(name, "");
         cookie.setHttpOnly(true);
-        cookie.setSecure(true);
+        cookie.setSecure(cookieSecure);
         cookie.setPath("/");
-        cookie.setAttribute("SameSite", "Strict");
+        cookie.setAttribute("SameSite", cookieSameSite);
         cookie.setMaxAge(0);
         response.addCookie(cookie);
     }
