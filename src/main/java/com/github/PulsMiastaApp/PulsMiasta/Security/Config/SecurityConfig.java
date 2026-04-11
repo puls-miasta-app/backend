@@ -70,6 +70,8 @@ public class SecurityConfig {
                         // Sudo mode — check status, begin/finish verification (needs session)
                         .requestMatchers("/v1/auth/sudo/**").authenticated()
                         .requestMatchers("/v1/test/**").permitAll()
+                        // Official / urzędnik endpoints — only users with ROLE_ADMIN
+                        .requestMatchers("/v1/admin/**").hasRole("ADMIN")
                         .anyRequest().authenticated()
                 )
                 .addFilterBefore(authTokenFilter, UsernamePasswordAuthenticationFilter.class)

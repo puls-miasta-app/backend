@@ -12,12 +12,12 @@ public record ReportResponse(
         Double latitude,
         Double longitude,
         String address,
+        Integer duplicateCount,
         List<PhotoInfo> photos,
         LocalDateTime createdAt
 ) {
     public record PhotoInfo(
             Long id,
-            String objectKey,
             String originalFilename,
             String contentType,
             Long fileSize
