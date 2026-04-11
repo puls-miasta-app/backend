@@ -6,13 +6,18 @@ import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.MediaType;
+import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.net.http.HttpClient;
+import java.time.Duration;
 import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -63,11 +68,29 @@ public class GeminiImageAnalysisService {
         this.properties = properties;
     }
 
+    /** Max attempts per call. One attempt = 1 try, so value 3 means 1 try + 2 retries. */
+    private static final int MAX_ATTEMPTS = 3;
+
+    /** Base backoff between retries; doubled on each subsequent attempt. */
+    private static final Duration RETRY_BASE_BACKOFF = Duration.ofMillis(500);
+
     @PostConstruct
     void init() {
+        Duration timeout = Duration.ofSeconds(Math.max(1, properties.getTimeoutSeconds()));
+
+        // JDK HttpClient controls the TCP connect timeout. Read timeout is handled
+        // per-request by JdkClientHttpRequestFactory.setReadTimeout.
+        HttpClient httpClient = HttpClient.newBuilder()
+                .connectTimeout(timeout)
+                .build();
+
+        JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(httpClient);
+        requestFactory.setReadTimeout(timeout);
+
         this.restClient = RestClient.builder()
                 .baseUrl(properties.getBaseUrl())
                 .defaultHeader("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .requestFactory(requestFactory)
                 .build();
     }
 
@@ -82,25 +105,70 @@ public class GeminiImageAnalysisService {
             return handleFailure("Gemini API key not configured", null);
         }
 
+        Map<String, Object> body;
         try {
-            Map<String, Object> body = buildRequestBody(imageBytes, contentType);
-
-            Map<String, Object> response = restClient.post()
-                    .uri("/models/{model}:generateContent?key={key}",
-                            properties.getModel(), properties.getApiKey())
-                    .body(body)
-                    .retrieve()
-                    .body(MAP_TYPE);
-
-            return parseResponse(response);
-        } catch (RestClientException e) {
-            log.error("Gemini API call failed: {}", e.getMessage());
-            return handleFailure("Gemini API call failed", e);
-        } catch (ImageAnalysisException e) {
-            throw e;
+            body = buildRequestBody(imageBytes, contentType);
         } catch (Exception e) {
-            log.error("Unexpected error while analysing image with Gemini", e);
-            return handleFailure("Unexpected error during image analysis", e);
+            log.error("Failed to build Gemini request body", e);
+            return handleFailure("Failed to build Gemini request body", e);
+        }
+
+        RestClientException lastFailure = null;
+        for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+            try {
+                Map<String, Object> response = restClient.post()
+                        .uri("/models/{model}:generateContent?key={key}",
+                                properties.getModel(), properties.getApiKey())
+                        .body(body)
+                        .retrieve()
+                        .body(MAP_TYPE);
+
+                return parseResponse(response);
+            } catch (HttpClientErrorException e) {
+                // 4xx from Gemini. Only 429 (rate limit) is worth retrying; other 4xx
+                // (bad request, unauthorized, forbidden) will just fail the same way.
+                lastFailure = e;
+                if (e.getStatusCode().value() != 429 || attempt == MAX_ATTEMPTS) {
+                    log.error("Gemini API call failed with {}: {}", e.getStatusCode(), e.getMessage());
+                    return handleFailure("Gemini API call failed: " + e.getStatusCode(), e);
+                }
+                log.warn("Gemini rate-limited (429), attempt {}/{}", attempt, MAX_ATTEMPTS);
+                sleepBackoff(attempt);
+            } catch (HttpServerErrorException e) {
+                // 5xx — always retryable.
+                lastFailure = e;
+                if (attempt == MAX_ATTEMPTS) {
+                    log.error("Gemini API 5xx after {} attempts: {}", MAX_ATTEMPTS, e.getMessage());
+                    return handleFailure("Gemini API unavailable", e);
+                }
+                log.warn("Gemini 5xx ({}), attempt {}/{}", e.getStatusCode(), attempt, MAX_ATTEMPTS);
+                sleepBackoff(attempt);
+            } catch (RestClientException e) {
+                // Network errors, timeouts, DNS failures — retryable.
+                lastFailure = e;
+                if (attempt == MAX_ATTEMPTS) {
+                    log.error("Gemini API network failure after {} attempts: {}", MAX_ATTEMPTS, e.getMessage());
+                    return handleFailure("Gemini API call failed", e);
+                }
+                log.warn("Gemini network error ({}), attempt {}/{}", e.getClass().getSimpleName(), attempt, MAX_ATTEMPTS);
+                sleepBackoff(attempt);
+            } catch (ImageAnalysisException e) {
+                throw e;
+            } catch (Exception e) {
+                log.error("Unexpected error while analysing image with Gemini", e);
+                return handleFailure("Unexpected error during image analysis", e);
+            }
+        }
+        // Unreachable in practice — the loop either returns or throws.
+        return handleFailure("Gemini API call failed", lastFailure);
+    }
+
+    private void sleepBackoff(int attempt) {
+        long millis = RETRY_BASE_BACKOFF.toMillis() * (1L << (attempt - 1));
+        try {
+            Thread.sleep(millis);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
         }
     }
 
@@ -142,15 +210,16 @@ public class GeminiImageAnalysisService {
         List<String> priorities = java.util.Arrays.stream(ReportPriority.values())
                 .map(Enum::name).toList();
 
-        Map<String, Object> properties = new LinkedHashMap<>();
-        properties.put("category", Map.of("type", "STRING", "enum", categories));
-        properties.put("priority", Map.of("type", "STRING", "enum", priorities));
-        properties.put("description", Map.of("type", "STRING"));
-        properties.put("confidence", Map.of("type", "NUMBER"));
+        // Named "schemaFields" to avoid shadowing the service's GeminiProperties field.
+        Map<String, Object> schemaFields = new LinkedHashMap<>();
+        schemaFields.put("category", Map.of("type", "STRING", "enum", categories));
+        schemaFields.put("priority", Map.of("type", "STRING", "enum", priorities));
+        schemaFields.put("description", Map.of("type", "STRING"));
+        schemaFields.put("confidence", Map.of("type", "NUMBER"));
 
         Map<String, Object> schema = new LinkedHashMap<>();
         schema.put("type", "OBJECT");
-        schema.put("properties", properties);
+        schema.put("properties", schemaFields);
         schema.put("required", List.of("category", "priority", "description", "confidence"));
         return schema;
     }

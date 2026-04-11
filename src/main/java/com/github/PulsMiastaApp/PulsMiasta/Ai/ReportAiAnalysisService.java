@@ -34,6 +34,7 @@ public class ReportAiAnalysisService {
     private static final int DEDUP_WINDOW_DAYS = 30;
 
     private final GeminiImageAnalysisService geminiImageAnalysisService;
+    private final GeminiProperties geminiProperties;
     private final ReportRepository reportRepository;
     private final ReportPhotoRepository reportPhotoRepository;
 
@@ -59,6 +60,16 @@ public class ReportAiAnalysisService {
             if (report.getMergedIntoReportId() != null) {
                 log.info("Report {} was already merged into {}, skipping AI writeback",
                         reportId, report.getMergedIntoReportId());
+                return;
+            }
+
+            // Confidence gate: if Gemini isn't sure the photo depicts a real issue,
+            // leave the AI fields blank for manual review and skip dedup entirely —
+            // we don't want to merge an ambiguous photo into a real report.
+            double threshold = geminiProperties.getMinConfidence();
+            if (result.confidence() < threshold) {
+                log.info("Report {}: AI confidence {} below threshold {}, leaving fields empty for manual review",
+                        reportId, result.confidence(), threshold);
                 return;
             }
 

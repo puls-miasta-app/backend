@@ -17,7 +17,15 @@ import java.util.List;
         @Index(name = "idx_report_user", columnList = "user_id"),
         @Index(name = "idx_report_status", columnList = "status"),
         @Index(name = "idx_report_category", columnList = "category"),
-        @Index(name = "idx_report_created_at", columnList = "created_at")
+        @Index(name = "idx_report_created_at", columnList = "created_at"),
+        // Optimises the async dedup lookup (category + status + location + date).
+        // Column order matches the most selective filters first so MySQL can use it
+        // as a prefix scan for the bounding-box range on latitude.
+        @Index(name = "idx_report_dedup",
+               columnList = "merged_into_report_id, category, status, latitude, longitude, created_at"),
+        // Optimises the admin listing (WHERE merged_into_report_id IS NULL + filters, ORDER BY created_at).
+        @Index(name = "idx_report_admin_list",
+               columnList = "merged_into_report_id, status, created_at")
 })
 @Getter
 @Setter

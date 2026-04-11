@@ -25,4 +25,11 @@ public class GeminiProperties {
 
     /** If true, report creation fails when Gemini cannot be reached. If false, the report is saved without AI fields. */
     private boolean failOnError = false;
+
+    /**
+     * Minimum confidence (0..1) required to accept Gemini's analysis. Below this
+     * threshold the report is saved WITHOUT AI-assigned category/priority/description
+     * (the admin reviews it manually), and dedup is skipped. Default 0.3.
+     */
+    private double minConfidence = 0.3;
 }
