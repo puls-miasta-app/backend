@@ -8,6 +8,4 @@ import java.util.Optional;
 public interface PulseVoteRepository extends JpaRepository<PulseVote, Long> {
 
     Optional<PulseVote> findByPulseIdAndUserId(Long pulseId, Long userId);
-
-    void deleteByPulseIdAndUserId(Long pulseId, Long userId);
 }

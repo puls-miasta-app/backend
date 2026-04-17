@@ -229,8 +229,11 @@ public class PulseController {
             }
             return c;
         } catch (IllegalArgumentException e) {
+            String allowed = java.util.Arrays.stream(PulseCategory.values())
+                    .map(PulseCategory::label)
+                    .collect(java.util.stream.Collectors.joining(", "));
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "Invalid category: must be one of Ruch, Bezpieczeństwo, Zieleń");
+                    "Invalid category: must be one of " + allowed);
         }
     }
 

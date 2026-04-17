@@ -118,6 +118,7 @@ public class PulseService {
         pulse.setUser(user);
         pulse.setStatus(PulseStatus.NEW);
         pulse.setCategory(category);
+        pulse.setPriority(PulsePriority.STANDARD);
         pulse.setDescription(description);
         pulse.setLatitude(latitude);
         pulse.setLongitude(longitude);
@@ -264,6 +265,12 @@ public class PulseService {
 
         // Jeżeli głosujemy na scalony stub, przenosimy głos na primary.
         pulse = resolveMerged(pulse);
+
+        // Pobieramy primary z blokadą wierszową — licznik upvotes/downvotes jest
+        // aktualizowany przez read-modify-write, więc bez locku tracimy inkrementy
+        // przy współbieżnych głosach na tego samego pulse'a.
+        pulse = pulseRepository.findByIdForUpdate(pulse.getId())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Pulse not found"));
 
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));

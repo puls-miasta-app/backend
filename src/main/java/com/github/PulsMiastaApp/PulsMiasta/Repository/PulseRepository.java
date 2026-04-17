@@ -6,8 +6,10 @@ import com.github.PulsMiastaApp.PulsMiasta.Model.Enums.PulsePriority;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Enums.PulseStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -19,6 +21,14 @@ public interface PulseRepository extends JpaRepository<Pulse, Long> {
 
     @EntityGraph(attributePaths = "photos")
     Optional<Pulse> findWithPhotosById(Long id);
+
+    /**
+     * Pobiera pulse z blokadą wierszową — używane przy głosowaniu, żeby zapobiec
+     * race condition na liczniku upvotes/downvotes (read-modify-write).
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select p from Pulse p where p.id = :id")
+    Optional<Pulse> findByIdForUpdate(@Param("id") Long id);
 
     // --- Feed z filtrem district/street (4 warianty, żeby uniknąć "(:p is null or ...)"
     //     który sprawia problemy z MySQL JDBC) ---
