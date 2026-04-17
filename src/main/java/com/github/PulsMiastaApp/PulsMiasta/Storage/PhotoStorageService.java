@@ -2,10 +2,10 @@ package com.github.PulsMiastaApp.PulsMiasta.Storage;
 
 import com.github.PulsMiastaApp.PulsMiasta.Config.StorageProperties;
 import com.github.PulsMiastaApp.PulsMiasta.Crypto.FileCryptoService;
-import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.Report;
-import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.ReportPhoto;
+import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.Pulse;
+import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.PulsePhoto;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.User;
-import com.github.PulsMiastaApp.PulsMiasta.Repository.ReportPhotoRepository;
+import com.github.PulsMiastaApp.PulsMiasta.Repository.PulsePhotoRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -30,7 +30,7 @@ public class PhotoStorageService {
     private final S3Client s3Client;
     private final FileCryptoService fileCryptoService;
     private final StorageProperties storageProperties;
-    private final ReportPhotoRepository reportPhotoRepository;
+    private final PulsePhotoRepository pulsePhotoRepository;
 
     private static final Set<String> ALLOWED_CONTENT_TYPES = Set.of(
             "image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"
@@ -120,12 +120,12 @@ public class PhotoStorageService {
      * purpose (e.g. async AI analysis) — it avoids calling
      * {@link MultipartFile#getInputStream()} a second time.
      */
-    public ReportPhoto uploadAndSavePhoto(
+    public PulsePhoto uploadAndSavePhoto(
             byte[] rawBytes,
             String originalFilename,
             String contentType,
             User user,
-            Report report) {
+            Pulse pulse) {
 
         validateRawBytes(rawBytes, contentType);
 
@@ -146,14 +146,14 @@ public class PhotoStorageService {
                 singleUpload(objectKey, encryptedBytes);
             }
 
-            ReportPhoto photo = new ReportPhoto();
+            PulsePhoto photo = new PulsePhoto();
             photo.setUser(user);
-            photo.setReport(report);
+            photo.setPulse(pulse);
             photo.setObjectKey(objectKey);
             photo.setOriginalFilename(originalFilename);
             photo.setContentType(contentType);
             photo.setFileSize(rawSize);
-            reportPhotoRepository.save(photo);
+            pulsePhotoRepository.save(photo);
 
             log.info("Photo uploaded: id={}, key={}, size={}, encrypted={}",
                     photo.getId(), objectKey, rawSize, encryptedBytes.length);

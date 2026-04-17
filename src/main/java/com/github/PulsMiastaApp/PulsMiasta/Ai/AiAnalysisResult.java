@@ -1,19 +1,20 @@
 package com.github.PulsMiastaApp.PulsMiasta.Ai;
 
-import com.github.PulsMiastaApp.PulsMiasta.Model.Enums.ReportCategory;
-import com.github.PulsMiastaApp.PulsMiasta.Model.Enums.ReportPriority;
+import com.github.PulsMiastaApp.PulsMiasta.Model.Enums.PulseCategory;
+import com.github.PulsMiastaApp.PulsMiasta.Model.Enums.PulsePriority;
 
 /**
- * Structured result returned by the image analysis model.
- *
- * @param category   detected infrastructure issue category
- * @param priority   urgency of the reported issue
- * @param description short human-readable description in Polish
- * @param confidence model confidence 0..1 that the image depicts a real infrastructure issue
+ * Strukturalny wynik analizy obrazu. Oprócz kategorii/priorytetu/opisu model
+ * zwraca również krótki "aiNote", "imageHint" i "heat" — pola te są wyświetlane
+ * bezpośrednio w karcie pulse'a w aplikacji mobilnej.
  */
 public record AiAnalysisResult(
-        ReportCategory category,
-        ReportPriority priority,
+        PulseCategory category,
+        PulsePriority priority,
+        String title,
         String description,
+        String aiNote,
+        String imageHint,
+        String heat,
         double confidence
 ) {}

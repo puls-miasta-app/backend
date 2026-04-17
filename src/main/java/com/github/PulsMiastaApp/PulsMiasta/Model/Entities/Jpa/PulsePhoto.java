@@ -7,24 +7,29 @@ import lombok.Setter;
 
 import java.time.LocalDateTime;
 
+/**
+ * Zdjęcie dołączone do pulse'a. Przy dedup-merge zdjęcia są reparentowane
+ * (photo.setPulse(primary)) zamiast kopiowane — dlatego collection {@code Pulse.photos}
+ * nie używa cascade / orphanRemoval.
+ */
 @Entity
-@Table(name = "report_photos", indexes = {
-        @Index(name = "idx_photo_report", columnList = "report_id"),
-        @Index(name = "idx_photo_user", columnList = "user_id"),
-        @Index(name = "idx_photo_object_key", columnList = "object_key", unique = true)
+@Table(name = "pulse_photos", indexes = {
+        @Index(name = "idx_pulse_photo_pulse", columnList = "pulse_id"),
+        @Index(name = "idx_pulse_photo_user", columnList = "user_id"),
+        @Index(name = "idx_pulse_photo_object_key", columnList = "object_key", unique = true)
 })
 @Getter
 @Setter
 @NoArgsConstructor
-public class ReportPhoto {
+public class PulsePhoto {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "report_id")
-    private Report report;
+    @JoinColumn(name = "pulse_id")
+    private Pulse pulse;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "user_id", nullable = false)
