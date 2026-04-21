@@ -61,7 +61,8 @@ public class PulseService {
                                      Double longitude,
                                      String address,
                                      String district,
-                                     String street) {
+                                     String street,
+                                     String city) {
 
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
@@ -77,12 +78,13 @@ public class PulseService {
         pulse.setAddress(address);
         pulse.setDistrict(district);
         pulse.setStreet(street);
+        pulse.setCity(city);
         pulse.setTitle(defaultTitleFor(category));
         pulseRepository.save(pulse);
 
         final Long pulseId = pulse.getId();
         final boolean needsGeocoding = latitude != null && longitude != null
-                && (district == null || street == null);
+                && (district == null || street == null || city == null);
         if (needsGeocoding) {
             registerAfterCommit(() -> enrichLocationAsync(pulseId, latitude, longitude));
         }
@@ -105,7 +107,8 @@ public class PulseService {
                                       Double longitude,
                                       String address,
                                       String district,
-                                      String street) {
+                                      String street,
+                                      String city) {
 
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
@@ -125,6 +128,7 @@ public class PulseService {
         pulse.setAddress(address);
         pulse.setDistrict(district);
         pulse.setStreet(street);
+        pulse.setCity(city);
         pulse.setTitle(defaultTitleFor(category));
         pulseRepository.save(pulse);
 
@@ -138,7 +142,7 @@ public class PulseService {
         registerAfterCommit(() ->
                 pulseAiAnalysisService.analyseAsync(pulseId, imageBytes, contentType));
 
-        if (latitude != null && longitude != null && (district == null || street == null)) {
+        if (latitude != null && longitude != null && (district == null || street == null || city == null)) {
             registerAfterCommit(() -> enrichLocationAsync(pulseId, latitude, longitude));
         }
 
@@ -172,6 +176,10 @@ public class PulseService {
                 pulse.setStreet(addr.street());
                 changed = true;
             }
+            if ((pulse.getCity() == null || pulse.getCity().isBlank()) && addr.city() != null) {
+                pulse.setCity(addr.city());
+                changed = true;
+            }
             if ((pulse.getAddress() == null || pulse.getAddress().isBlank()) && addr.formattedAddress() != null) {
                 pulse.setAddress(addr.formattedAddress());
                 changed = true;
@@ -190,8 +198,26 @@ public class PulseService {
 
     @Transactional(readOnly = true)
     public List<Pulse> listFeed(String district, String street) {
+        return listFeed(null, district, street);
+    }
+
+    @Transactional(readOnly = true)
+    public List<Pulse> listFeed(String city, String district, String street) {
+        String c = blankToNull(city);
         String d = blankToNull(district);
         String s = blankToNull(street);
+        if (c != null && d != null && s != null) {
+            return pulseRepository.findFeedByCityAndDistrictAndStreet(c, d, s);
+        }
+        if (c != null && d != null) {
+            return pulseRepository.findFeedByCityAndDistrict(c, d);
+        }
+        if (c != null && s != null) {
+            return pulseRepository.findFeedByCityAndStreet(c, s);
+        }
+        if (c != null) {
+            return pulseRepository.findFeedByCity(c);
+        }
         if (d != null && s != null) {
             return pulseRepository.findFeedByDistrictAndStreet(d, s);
         }
@@ -202,6 +228,25 @@ public class PulseService {
             return pulseRepository.findFeedByStreet(s);
         }
         return pulseRepository.findFeedAll();
+    }
+
+    /** Zwraca kierunek głosu użytkownika dla pulse'a (null, jeśli nie głosował). */
+    @Transactional(readOnly = true)
+    public VoteDirection getUserVote(Long pulseId, Long userId) {
+        if (pulseId == null || userId == null) return null;
+        return pulseVoteRepository.findByPulseIdAndUserId(pulseId, userId)
+                .map(PulseVote::getDirection)
+                .orElse(null);
+    }
+
+    /** Bulk: mapa pulseId -> kierunek głosu dla danego usera. */
+    @Transactional(readOnly = true)
+    public java.util.Map<Long, VoteDirection> getUserVotes(java.util.Collection<Long> pulseIds, Long userId) {
+        if (userId == null || pulseIds == null || pulseIds.isEmpty()) {
+            return java.util.Collections.emptyMap();
+        }
+        return pulseVoteRepository.findAllByUserIdAndPulseIdIn(userId, pulseIds).stream()
+                .collect(java.util.stream.Collectors.toMap(v -> v.getPulse().getId(), PulseVote::getDirection));
     }
 
     @Transactional(readOnly = true)

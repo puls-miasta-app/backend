@@ -25,6 +25,7 @@ import java.util.List;
         @Index(name = "idx_pulse_created_at", columnList = "created_at"),
         @Index(name = "idx_pulse_district", columnList = "district"),
         @Index(name = "idx_pulse_street", columnList = "street"),
+        @Index(name = "idx_pulse_city", columnList = "city"),
         @Index(name = "idx_pulse_dedup",
                 columnList = "merged_into_pulse_id, category, status, latitude, longitude, created_at"),
         @Index(name = "idx_pulse_admin_list",
@@ -78,6 +79,10 @@ public class Pulse {
     /** Ulica — przypisywana przez reverse geocoding lub manualnie. */
     @Column(name = "street", length = 200)
     private String street;
+
+    /** Miasto — przypisywane przez reverse geocoding lub manualnie. */
+    @Column(name = "city", length = 120)
+    private String city;
 
     /** Tekstowy marker nasilenia (np. "Wysokie", "Średnie", "Niskie"). Wyświetlany w feedzie mobile. */
     @Column(name = "heat", length = 30)

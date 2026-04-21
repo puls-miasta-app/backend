@@ -1,13 +1,7 @@
 package com.github.PulsMiastaApp.PulsMiasta.Controller.DTO;
 
 /**
- * Body dla {@code POST /v1/pulses} wysyłanego przez aplikację mobilną
- * (patrz {@code createPulseApiSchema.POST.input} w mobile).
- *
- * <p>Pola opcjonalne — tylko {@code category} i {@code photoAttached} są wymagane.
- * {@code latitude}/{@code longitude}/{@code address}/{@code district}/{@code street}
- * są dodatkowe i służą do wypełnienia pól serwerowych (dedup + feed filtering). Jeżeli
- * mobile ich nie dostarczy, backend zostawi te pola puste.
+ * Body dla {@code POST /v1/pulses} wysyłanego przez aplikację mobilną.
  */
 public record CreatePulseRequest(
         String description,
@@ -17,5 +11,6 @@ public record CreatePulseRequest(
         Double longitude,
         String address,
         String district,
-        String street
+        String street,
+        String city
 ) {}

@@ -2,16 +2,21 @@ package com.github.PulsMiastaApp.PulsMiasta.Controller;
 
 import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.PulseResponse;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.Pulse;
+import com.github.PulsMiastaApp.PulsMiasta.Model.Enums.VoteDirection;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
 
 /** Konwersja Pulse -> PulseResponse zgodnie z kontraktem mobile. */
-final class PulseMapper {
+public final class PulseMapper {
 
     private PulseMapper() {}
 
-    static PulseResponse toResponse(Pulse pulse) {
+    public static PulseResponse toResponse(Pulse pulse) {
+        return toResponse(pulse, null);
+    }
+
+    public static PulseResponse toResponse(Pulse pulse, VoteDirection userVote) {
         var photos = pulse.getPhotos().stream()
                 .map(p -> new PulseResponse.PhotoInfo(
                         p.getId(),
@@ -21,6 +26,8 @@ final class PulseMapper {
                 ))
                 .toList();
 
+        String email = pulse.getUser() != null ? pulse.getUser().getEmail() : null;
+
         return new PulseResponse(
                 String.valueOf(pulse.getId()),
                 nullToEmpty(pulse.getTitle()),
@@ -28,6 +35,7 @@ final class PulseMapper {
                 pulse.getCategory() != null ? pulse.getCategory().label() : "",
                 nullToEmpty(pulse.getDistrict()),
                 nullToEmpty(pulse.getStreet()),
+                nullToEmpty(pulse.getCity()),
                 formatRelativeTime(pulse.getCreatedAt()),
                 pulse.getCommentsCount() == null ? 0 : pulse.getCommentsCount(),
                 pulse.score(),
@@ -35,6 +43,11 @@ final class PulseMapper {
                 nullToEmpty(pulse.getAiNote()),
                 nullToEmpty(pulse.getImageHint()),
                 pulse.getPriority() != null ? pulse.getPriority().label() : "Standard",
+                pulse.getStatus() != null ? pulse.getStatus().label() : "Nowe",
+                pulse.getLatitude(),
+                pulse.getLongitude(),
+                email,
+                userVote == null ? null : userVote.toApi(),
                 photos
         );
     }
@@ -43,10 +56,6 @@ final class PulseMapper {
         return s == null ? "" : s;
     }
 
-    /**
-     * Mobile oczekuje gotowego stringa do wyświetlenia w karcie (np. "5 min temu").
-     * Formatujemy tu po polsku — uproszczone, kategorie: teraz / N min / N godz / N dni / data.
-     */
     private static String formatRelativeTime(LocalDateTime createdAt) {
         if (createdAt == null) {
             return "";

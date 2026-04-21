@@ -84,9 +84,10 @@ public class ReverseGeocodingService {
 
             String district = pickDistrict(address);
             String street = pickStreet(address);
+            String city = pickCity(address);
             String formatted = asString(response.get("display_name"));
 
-            return new GeocodedAddress(district, street, formatted);
+            return new GeocodedAddress(district, street, city, formatted);
         } catch (Exception e) {
             log.warn("Reverse geocoding failed for ({}, {}): {}", latitude, longitude, e.getMessage());
             return GeocodedAddress.empty();
@@ -101,6 +102,17 @@ public class ReverseGeocodingService {
     private String pickDistrict(Map<String, Object> address) {
         String[] keys = {"city_district", "suburb", "district", "borough", "neighbourhood",
                          "quarter", "city", "town", "village"};
+        for (String k : keys) {
+            String v = asString(address.get(k));
+            if (v != null && !v.isBlank()) {
+                return v;
+            }
+        }
+        return null;
+    }
+
+    private String pickCity(Map<String, Object> address) {
+        String[] keys = {"city", "town", "village", "municipality", "hamlet"};
         for (String k : keys) {
             String v = asString(address.get(k));
             if (v != null && !v.isBlank()) {
@@ -129,13 +141,13 @@ public class ReverseGeocodingService {
      * Wynik reverse geocodingu. Pola mogą być {@code null}, jeśli Nominatim nie zwrócił
      * odpowiedniej klasyfikacji (np. punkt w środku lasu).
      */
-    public record GeocodedAddress(String district, String street, String formattedAddress) {
+    public record GeocodedAddress(String district, String street, String city, String formattedAddress) {
         public static GeocodedAddress empty() {
-            return new GeocodedAddress(null, null, null);
+            return new GeocodedAddress(null, null, null, null);
         }
 
         public boolean hasAny() {
-            return district != null || street != null || formattedAddress != null;
+            return district != null || street != null || city != null || formattedAddress != null;
         }
     }
 }
