@@ -30,103 +30,13 @@ public interface PulseRepository extends JpaRepository<Pulse, Long> {
     @Query("select p from Pulse p where p.id = :id")
     Optional<Pulse> findByIdForUpdate(@Param("id") Long id);
 
-    // --- Feed z filtrem district/street (4 warianty, żeby uniknąć "(:p is null or ...)"
-    //     który sprawia problemy z MySQL JDBC) ---
-
-    @EntityGraph(attributePaths = "photos")
-    @Query("""
-            select p from Pulse p
-            where p.mergedIntoPulseId is null
-            order by p.createdAt desc
-            """)
-    List<Pulse> findFeedAll();
-
-    @EntityGraph(attributePaths = "photos")
-    @Query("""
-            select p from Pulse p
-            where p.mergedIntoPulseId is null
-              and p.district = :district
-            order by p.createdAt desc
-            """)
-    List<Pulse> findFeedByDistrict(@Param("district") String district);
-
-    @EntityGraph(attributePaths = "photos")
-    @Query("""
-            select p from Pulse p
-            where p.mergedIntoPulseId is null
-              and p.street = :street
-            order by p.createdAt desc
-            """)
-    List<Pulse> findFeedByStreet(@Param("street") String street);
-
-    @EntityGraph(attributePaths = "photos")
-    @Query("""
-            select p from Pulse p
-            where p.mergedIntoPulseId is null
-              and p.district = :district
-              and p.street = :street
-            order by p.createdAt desc
-            """)
-    List<Pulse> findFeedByDistrictAndStreet(@Param("district") String district,
-                                            @Param("street") String street);
-
-    @EntityGraph(attributePaths = "photos")
-    @Query("""
-            select p from Pulse p
-            where p.mergedIntoPulseId is null
-              and p.city = :city
-            order by p.createdAt desc
-            """)
-    List<Pulse> findFeedByCity(@Param("city") String city);
-
-    @EntityGraph(attributePaths = "photos")
-    @Query("""
-            select p from Pulse p
-            where p.mergedIntoPulseId is null
-              and p.city = :city
-              and p.district = :district
-            order by p.createdAt desc
-            """)
-    List<Pulse> findFeedByCityAndDistrict(@Param("city") String city,
-                                          @Param("district") String district);
-
-    @EntityGraph(attributePaths = "photos")
-    @Query("""
-            select p from Pulse p
-            where p.mergedIntoPulseId is null
-              and p.city = :city
-              and p.street = :street
-            order by p.createdAt desc
-            """)
-    List<Pulse> findFeedByCityAndStreet(@Param("city") String city,
-                                        @Param("street") String street);
-
-    @EntityGraph(attributePaths = "photos")
-    @Query("""
-            select p from Pulse p
-            where p.mergedIntoPulseId is null
-              and p.city = :city
-              and p.district = :district
-              and p.street = :street
-            order by p.createdAt desc
-            """)
-    List<Pulse> findFeedByCityAndDistrictAndStreet(@Param("city") String city,
-                                                   @Param("district") String district,
-                                                   @Param("street") String street);
+    // Feed (listFeed) i "visible to user" (listForUser) są zaimplementowane przez
+    // PulseFeedJdbcRepository — JPA/@EntityGraph z LEFT JOIN na pulse_photos wali
+    // SQLState S1009 (Hibernate 7 + MySQL Connector/J). Patrz też AreaDictionaryController.
 
     long countByUserId(Long userId);
 
     java.util.List<Pulse> findAllByUserIdOrderByCreatedAtDesc(Long userId);
-
-    @EntityGraph(attributePaths = "photos")
-    @Query("""
-            select distinct p from Pulse p
-            left join p.photos ph
-            where p.mergedIntoPulseId is null
-              and (p.user.id = :userId or ph.user.id = :userId)
-            order by p.createdAt desc
-            """)
-    List<Pulse> findAllVisibleToUser(@Param("userId") Long userId);
 
     /** Deduplikacja — szukamy OPEN pulses tej samej kategorii w bounding boxie. */
     @EntityGraph(attributePaths = "photos")
