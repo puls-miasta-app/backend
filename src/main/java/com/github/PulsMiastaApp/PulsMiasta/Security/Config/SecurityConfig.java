@@ -53,6 +53,9 @@ public class SecurityConfig {
                                 "/swagger-ui.html",
                                 "/swagger-ui/**",
                                 "/v3/api-docs/**").permitAll()
+                        // Android Digital Asset Links — fetched unauthenticated by
+                        // Google's verification servers for Credential Manager / passkeys.
+                        .requestMatchers("/.well-known/assetlinks.json").permitAll()
                         // Standard auth (PESEL + password) + login 2FA steps
                         .requestMatchers("/v1/auth/register", "/v1/auth/login", "/v1/auth/logout",
                                 "/v1/auth/verify-email",
