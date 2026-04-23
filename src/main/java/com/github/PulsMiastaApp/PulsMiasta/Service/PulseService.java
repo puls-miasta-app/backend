@@ -10,6 +10,7 @@ import com.github.PulsMiastaApp.PulsMiasta.Model.Enums.PulseCategory;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Enums.PulsePriority;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Enums.PulseStatus;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Enums.VoteDirection;
+import com.github.PulsMiastaApp.PulsMiasta.Repository.PulseFeedJdbcRepository;
 import com.github.PulsMiastaApp.PulsMiasta.Repository.PulsePhotoRepository;
 import com.github.PulsMiastaApp.PulsMiasta.Repository.PulseRepository;
 import com.github.PulsMiastaApp.PulsMiasta.Repository.PulseVoteRepository;
@@ -38,6 +39,7 @@ import java.util.Optional;
 public class PulseService {
 
     private final PulseRepository pulseRepository;
+    private final PulseFeedJdbcRepository pulseFeedJdbcRepository;
     private final PulsePhotoRepository pulsePhotoRepository;
     private final PulseVoteRepository pulseVoteRepository;
     private final UserRepository userRepository;
@@ -203,31 +205,8 @@ public class PulseService {
 
     @Transactional(readOnly = true)
     public List<Pulse> listFeed(String city, String district, String street) {
-        String c = blankToNull(city);
-        String d = blankToNull(district);
-        String s = blankToNull(street);
-        if (c != null && d != null && s != null) {
-            return pulseRepository.findFeedByCityAndDistrictAndStreet(c, d, s);
-        }
-        if (c != null && d != null) {
-            return pulseRepository.findFeedByCityAndDistrict(c, d);
-        }
-        if (c != null && s != null) {
-            return pulseRepository.findFeedByCityAndStreet(c, s);
-        }
-        if (c != null) {
-            return pulseRepository.findFeedByCity(c);
-        }
-        if (d != null && s != null) {
-            return pulseRepository.findFeedByDistrictAndStreet(d, s);
-        }
-        if (d != null) {
-            return pulseRepository.findFeedByDistrict(d);
-        }
-        if (s != null) {
-            return pulseRepository.findFeedByStreet(s);
-        }
-        return pulseRepository.findFeedAll();
+        return pulseFeedJdbcRepository.findFeed(
+                blankToNull(city), blankToNull(district), blankToNull(street));
     }
 
     /** Zwraca kierunek głosu użytkownika dla pulse'a (null, jeśli nie głosował). */
@@ -251,7 +230,7 @@ public class PulseService {
 
     @Transactional(readOnly = true)
     public List<Pulse> listForUser(Long userId) {
-        return pulseRepository.findAllVisibleToUser(userId);
+        return pulseFeedJdbcRepository.findAllVisibleToUser(userId);
     }
 
     @Transactional(readOnly = true)
