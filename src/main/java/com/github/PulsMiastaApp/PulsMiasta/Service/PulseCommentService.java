@@ -41,10 +41,13 @@ public class PulseCommentService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Comment too long (max 2000 chars)");
         }
 
-        Pulse pulse = pulseRepository.findById(pulseId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Pulse not found"));
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
+
+        // Lock pulse row before read-modify-write on commentsCount to prevent
+        // concurrent comment inserts from racing on the counter update.
+        Pulse pulse = pulseRepository.findByIdForUpdate(pulseId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Pulse not found"));
 
         PulseComment c = new PulseComment();
         c.setPulse(pulse);
