@@ -53,7 +53,9 @@ public class UserController {
             @PathVariable("id") Long id,
             @AuthenticationPrincipal AuthPrincipal principal) {
         if (principal == null) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
-        return ResponseEntity.ok(SuccessResponse.of(userProfileService.getForUser(id)));
+        boolean ownProfile = id.equals(principal.id());
+        return ResponseEntity.ok(SuccessResponse.of(
+                userProfileService.getForUser(id, ownProfile)));
     }
 
     @Schema(name = "MeSuccessResponse")

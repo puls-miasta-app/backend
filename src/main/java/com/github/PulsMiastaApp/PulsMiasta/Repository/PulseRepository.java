@@ -38,6 +38,29 @@ public interface PulseRepository extends JpaRepository<Pulse, Long> {
 
     java.util.List<Pulse> findAllByUserIdOrderByCreatedAtDesc(Long userId);
 
+    /**
+     * Aggregate stats dla profilu użytkownika — pozwala uniknąć ładowania
+     * wszystkich pulse'ów do pamięci tylko po to, żeby zsumować liczniki
+     * (patrz UserProfileService).
+     */
+    @Query("""
+            select count(p) as pulsesSubmitted,
+                   coalesce(sum(p.upvotes), 0) as totalUpvotes,
+                   coalesce(sum(p.downvotes), 0) as totalDownvotes,
+                   coalesce(sum(case when p.status = com.github.PulsMiastaApp.PulsMiasta.Model.Enums.PulseStatus.RESOLVED
+                                     then 1 else 0 end), 0) as resolvedPulses
+              from Pulse p
+             where p.user.id = :userId
+            """)
+    UserPulseStats aggregateStatsForUser(@Param("userId") Long userId);
+
+    interface UserPulseStats {
+        long getPulsesSubmitted();
+        long getTotalUpvotes();
+        long getTotalDownvotes();
+        long getResolvedPulses();
+    }
+
     /** Deduplikacja — szukamy OPEN pulses tej samej kategorii w bounding boxie. */
     @EntityGraph(attributePaths = "photos")
     @Query("""

@@ -85,6 +85,17 @@ public class PulseFeedJdbcRepository {
         return pulses;
     }
 
+    public List<Pulse> findRecentByUser(Long userId, int limit) {
+        String sql = BASE_PULSE_SELECT + """
+                WHERE p.user_id = ?
+                ORDER BY p.created_at DESC
+                LIMIT ?
+                """;
+        List<Pulse> pulses = runPulseQuery(sql, List.of(userId, limit));
+        attachPhotos(pulses);
+        return pulses;
+    }
+
     private List<Pulse> runPulseQuery(String sql, List<Object> params) {
         List<Pulse> result = new ArrayList<>();
         jdbcTemplate.execute((java.sql.Connection conn) -> {

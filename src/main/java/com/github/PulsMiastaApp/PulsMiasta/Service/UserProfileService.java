@@ -3,10 +3,9 @@ package com.github.PulsMiastaApp.PulsMiasta.Service;
 import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.PulseResponse;
 import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.UserProfileResponse;
 import com.github.PulsMiastaApp.PulsMiasta.Controller.PulseMapper;
-import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.Pulse;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.User;
-import com.github.PulsMiastaApp.PulsMiasta.Model.Enums.PulseStatus;
 import com.github.PulsMiastaApp.PulsMiasta.Repository.PulseCommentRepository;
+import com.github.PulsMiastaApp.PulsMiasta.Repository.PulseFeedJdbcRepository;
 import com.github.PulsMiastaApp.PulsMiasta.Repository.PulseRepository;
 import com.github.PulsMiastaApp.PulsMiasta.Repository.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -24,6 +23,7 @@ public class UserProfileService {
 
     private final UserRepository userRepository;
     private final PulseRepository pulseRepository;
+    private final PulseFeedJdbcRepository pulseFeedJdbcRepository;
     private final PulseCommentRepository commentRepository;
 
     private static final int RECENT_PULSES_LIMIT = 10;
@@ -38,21 +38,20 @@ public class UserProfileService {
 
     @Transactional(readOnly = true)
     public UserProfileResponse getForUser(Long userId) {
+        return getForUser(userId, true);
+    }
+
+    @Transactional(readOnly = true)
+    public UserProfileResponse getForUser(Long userId, boolean includePii) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
 
-        List<Pulse> pulses = pulseRepository.findAllByUserIdOrderByCreatedAtDesc(userId);
-        long pulsesSubmitted = pulses.size();
+        var statsRow = pulseRepository.aggregateStatsForUser(userId);
+        long pulsesSubmitted = statsRow == null ? 0 : statsRow.getPulsesSubmitted();
+        long totalUp = statsRow == null ? 0 : statsRow.getTotalUpvotes();
+        long totalDown = statsRow == null ? 0 : statsRow.getTotalDownvotes();
+        long resolved = statsRow == null ? 0 : statsRow.getResolvedPulses();
         long commentsPosted = commentRepository.countByUserId(userId);
-
-        long totalUp = 0;
-        long totalDown = 0;
-        long resolved = 0;
-        for (Pulse p : pulses) {
-            totalUp += p.getUpvotes() == null ? 0 : p.getUpvotes();
-            totalDown += p.getDownvotes() == null ? 0 : p.getDownvotes();
-            if (p.getStatus() == PulseStatus.RESOLVED) resolved++;
-        }
 
         var stats = new UserProfileResponse.Stats(
                 pulsesSubmitted, commentsPosted, totalUp, totalDown, resolved);
@@ -61,14 +60,15 @@ public class UserProfileService {
         var rank = computeRank(points);
         var badges = computeBadges(stats);
 
-        List<PulseResponse> recent = pulses.stream()
-                .limit(RECENT_PULSES_LIMIT)
+        List<PulseResponse> recent = pulseFeedJdbcRepository
+                .findRecentByUser(userId, RECENT_PULSES_LIMIT)
+                .stream()
                 .map(p -> PulseMapper.toResponse(p, null))
                 .toList();
 
         return new UserProfileResponse(
                 user.getId(),
-                user.getEmail(),
+                includePii ? user.getEmail() : null,
                 user.getFirstName(),
                 user.getLastName(),
                 stats,

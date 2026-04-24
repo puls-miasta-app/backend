@@ -33,6 +33,14 @@ public class NotificationService {
 
         DeviceRegistration device = deviceRepo.findByPushToken(req.pushToken())
                 .orElseGet(DeviceRegistration::new);
+        // Reject reassigning a token that already belongs to a different user —
+        // otherwise user B could register with user A's token and steal delivery.
+        if (device.getId() != null
+                && device.getUser() != null
+                && !userId.equals(device.getUser().getId())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Push token is already registered to another user");
+        }
         device.setUser(user);
         device.setPushToken(req.pushToken());
         device.setPlatform(req.platform());
@@ -96,13 +104,23 @@ public class NotificationService {
     private static NotificationDtos.DeviceResponse toResponse(DeviceRegistration d) {
         return new NotificationDtos.DeviceResponse(
                 d.getId(),
-                d.getPushToken(),
+                maskToken(d.getPushToken()),
                 d.getPlatform(),
                 d.getDeviceName(),
                 d.getLocale(),
                 d.getCreatedAt() != null ? d.getCreatedAt().toString() : null,
                 d.getUpdatedAt() != null ? d.getUpdatedAt().toString() : null
         );
+    }
+
+    // Push tokens are credentials used to deliver notifications — never return the
+    // raw value in API responses. Keep just enough for the user to identify a
+    // specific device registration.
+    private static String maskToken(String token) {
+        if (token == null) return null;
+        int len = token.length();
+        if (len <= 4) return "****";
+        return "****" + token.substring(len - 4);
     }
 
     private static NotificationDtos.PreferencesResponse toPrefsResponse(NotificationPreferences p) {

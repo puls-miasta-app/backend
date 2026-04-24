@@ -69,6 +69,31 @@ public class PulseService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
 
+        Pulse pulse = buildPulse(user, category, description, latitude, longitude,
+                address, district, street, city);
+        pulseRepository.save(pulse);
+
+        final Long pulseId = pulse.getId();
+        final boolean needsGeocoding = latitude != null && longitude != null
+                && (district == null || street == null || city == null);
+        if (needsGeocoding) {
+            registerAfterCommit(() -> enrichLocationAsync(pulseId, latitude, longitude));
+        }
+
+        log.info("Pulse metadata created: id={}, category={}, district={}, street={}",
+                pulseId, category, district, street);
+        return pulse;
+    }
+
+    private Pulse buildPulse(User user,
+                             PulseCategory category,
+                             String description,
+                             Double latitude,
+                             Double longitude,
+                             String address,
+                             String district,
+                             String street,
+                             String city) {
         Pulse pulse = new Pulse();
         pulse.setUser(user);
         pulse.setStatus(PulseStatus.NEW);
@@ -82,17 +107,6 @@ public class PulseService {
         pulse.setStreet(street);
         pulse.setCity(city);
         pulse.setTitle(defaultTitleFor(category));
-        pulseRepository.save(pulse);
-
-        final Long pulseId = pulse.getId();
-        final boolean needsGeocoding = latitude != null && longitude != null
-                && (district == null || street == null || city == null);
-        if (needsGeocoding) {
-            registerAfterCommit(() -> enrichLocationAsync(pulseId, latitude, longitude));
-        }
-
-        log.info("Pulse metadata created: id={}, category={}, district={}, street={}",
-                pulseId, category, district, street);
         return pulse;
     }
 
@@ -119,19 +133,8 @@ public class PulseService {
         String contentType = photo.getContentType();
         String originalFilename = photo.getOriginalFilename();
 
-        Pulse pulse = new Pulse();
-        pulse.setUser(user);
-        pulse.setStatus(PulseStatus.NEW);
-        pulse.setCategory(category);
-        pulse.setPriority(PulsePriority.STANDARD);
-        pulse.setDescription(description);
-        pulse.setLatitude(latitude);
-        pulse.setLongitude(longitude);
-        pulse.setAddress(address);
-        pulse.setDistrict(district);
-        pulse.setStreet(street);
-        pulse.setCity(city);
-        pulse.setTitle(defaultTitleFor(category));
+        Pulse pulse = buildPulse(user, category, description, latitude, longitude,
+                address, district, street, city);
         pulseRepository.save(pulse);
 
         PulsePhoto pulsePhoto = photoStorageService.uploadAndSavePhoto(
@@ -199,11 +202,6 @@ public class PulseService {
     // ---------- READ ----------
 
     @Transactional(readOnly = true)
-    public List<Pulse> listFeed(String district, String street) {
-        return listFeed(null, district, street);
-    }
-
-    @Transactional(readOnly = true)
     public List<Pulse> listFeed(String city, String district, String street) {
         return pulseFeedJdbcRepository.findFeed(
                 blankToNull(city), blankToNull(district), blankToNull(street));
@@ -259,7 +257,9 @@ public class PulseService {
         int hops = 0;
         while (pulse.getMergedIntoPulseId() != null && hops++ < 3) {
             Long target = pulse.getMergedIntoPulseId();
-            pulse = pulseRepository.findById(target)
+            // Use findWithPhotosById so the resolved target has its photos eagerly
+            // fetched — callers map the returned Pulse to DTOs that include photos.
+            pulse = pulseRepository.findWithPhotosById(target)
                     .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Merged target not found"));
         }
         return pulse;
