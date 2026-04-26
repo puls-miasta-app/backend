@@ -62,7 +62,6 @@ public interface PulseRepository extends JpaRepository<Pulse, Long> {
     }
 
     /** Deduplikacja — szukamy OPEN pulses tej samej kategorii w bounding boxie. */
-    @EntityGraph(attributePaths = "photos")
     @Query("""
             select p from Pulse p
             where p.id <> :excludeId

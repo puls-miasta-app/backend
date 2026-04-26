@@ -233,7 +233,7 @@ public class PulseService {
 
     @Transactional(readOnly = true)
     public Pulse getForUser(Long pulseId, Long userId) {
-        Pulse pulse = pulseRepository.findWithPhotosById(pulseId)
+        Pulse pulse = pulseFeedJdbcRepository.findByIdWithPhotos(pulseId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Pulse not found"));
         pulse = resolveMerged(pulse);
 
@@ -248,7 +248,7 @@ public class PulseService {
 
     @Transactional(readOnly = true)
     public Pulse getAny(Long pulseId) {
-        Pulse pulse = pulseRepository.findWithPhotosById(pulseId)
+        Pulse pulse = pulseFeedJdbcRepository.findByIdWithPhotos(pulseId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Pulse not found"));
         return resolveMerged(pulse);
     }
@@ -257,9 +257,7 @@ public class PulseService {
         int hops = 0;
         while (pulse.getMergedIntoPulseId() != null && hops++ < 3) {
             Long target = pulse.getMergedIntoPulseId();
-            // Use findWithPhotosById so the resolved target has its photos eagerly
-            // fetched — callers map the returned Pulse to DTOs that include photos.
-            pulse = pulseRepository.findWithPhotosById(target)
+            pulse = pulseFeedJdbcRepository.findByIdWithPhotos(target)
                     .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Merged target not found"));
         }
         return pulse;
@@ -284,28 +282,29 @@ public class PulseService {
      */
     @Transactional
     public VotePulseResponse vote(Long userId, Long pulseId, VoteDirection direction) {
-        Pulse pulse = pulseRepository.findById(pulseId)
+        // Ładujemy przez JDBC — omija bug Hibernate 7 + MySQL Connector/J na tabeli pulses.
+        Pulse pulse = pulseFeedJdbcRepository.findByIdWithPhotos(pulseId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Pulse not found"));
 
-        // Jeżeli głosujemy na scalony stub, przenosimy głos na primary.
         pulse = resolveMerged(pulse);
 
-        // Pobieramy primary z blokadą wierszową — licznik upvotes/downvotes jest
-        // aktualizowany przez read-modify-write, więc bez locku tracimy inkrementy
-        // przy współbieżnych głosach na tego samego pulse'a.
-        pulse = pulseRepository.findByIdForUpdate(pulse.getId())
+        // Blokada wierszowa (SELECT ... FOR UPDATE) przez JDBC — ta sama przyczyna.
+        pulse = pulseFeedJdbcRepository.findByIdForUpdate(pulse.getId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Pulse not found"));
 
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
 
         Long primaryPulseId = pulse.getId();
+        // Proxy JPA — potrzebne tylko do ustawienia FK w PulseVote, nie wyzwala SELECT.
+        Pulse pulseRef = pulseRepository.getReferenceById(primaryPulseId);
+
         Optional<PulseVote> existing = pulseVoteRepository.findByPulseIdAndUserId(primaryPulseId, userId);
         VoteDirection resulting;
 
         if (existing.isEmpty()) {
             PulseVote v = new PulseVote();
-            v.setPulse(pulse);
+            v.setPulse(pulseRef);
             v.setUser(user);
             v.setDirection(direction);
             pulseVoteRepository.save(v);
@@ -327,7 +326,8 @@ public class PulseService {
             }
         }
 
-        pulseRepository.save(pulse);
+        // UPDATE przez JDBC — unikamy em.merge() który wyzwoliłby Hibernate SELECT na pulses.
+        pulseFeedJdbcRepository.updateVoteCounters(primaryPulseId, pulse.getUpvotes(), pulse.getDownvotes());
 
         return new VotePulseResponse(
                 String.valueOf(primaryPulseId),

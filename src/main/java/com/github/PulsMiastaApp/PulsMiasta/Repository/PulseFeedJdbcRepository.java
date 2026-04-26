@@ -18,6 +18,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Feed queries dla pulses realizowane przez {@link JdbcTemplate} zamiast Hibernate.
@@ -94,6 +95,26 @@ public class PulseFeedJdbcRepository {
         List<Pulse> pulses = runPulseQuery(sql, List.of(userId, limit));
         attachPhotos(pulses);
         return pulses;
+    }
+
+    public Optional<Pulse> findByIdWithPhotos(Long id) {
+        String sql = BASE_PULSE_SELECT + " WHERE p.id = ?";
+        List<Pulse> pulses = runPulseQuery(sql, List.of(id));
+        attachPhotos(pulses);
+        return pulses.isEmpty() ? Optional.empty() : Optional.of(pulses.get(0));
+    }
+
+    /** SELECT ... FOR UPDATE — używane w transakcji głosowania do blokady wierszowej. */
+    public Optional<Pulse> findByIdForUpdate(Long id) {
+        String sql = BASE_PULSE_SELECT + " WHERE p.id = ? FOR UPDATE";
+        List<Pulse> pulses = runPulseQuery(sql, List.of(id));
+        return pulses.isEmpty() ? Optional.empty() : Optional.of(pulses.get(0));
+    }
+
+    public void updateVoteCounters(Long pulseId, int upvotes, int downvotes) {
+        jdbcTemplate.update(
+                "UPDATE pulses SET upvotes = ?, downvotes = ?, updated_at = NOW() WHERE id = ?",
+                upvotes, downvotes, pulseId);
     }
 
     private List<Pulse> runPulseQuery(String sql, List<Object> params) {
