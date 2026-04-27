@@ -73,8 +73,11 @@ public class SecurityConfig {
                         // Sudo mode — check status, begin/finish verification (needs session)
                         .requestMatchers("/v1/auth/sudo/**").authenticated()
                         .requestMatchers("/v1/test/**").permitAll()
-                        // Official / urzędnik endpoints — only users with ROLE_ADMIN
-                        .requestMatchers("/v1/admin/**").hasRole("ADMIN")
+                        // Urzędnik/admin endpoints — dostęp dla wszystkich ról adminów
+                        .requestMatchers("/v1/admin/**").hasAnyRole(
+                                "SUPER_ADMIN", "ADMIN_WOJEWODZTWA", "ADMIN_POWIATU",
+                                "ADMIN_GMINY", "ADMIN_MIASTA"
+                        )
                         .anyRequest().authenticated()
                 )
                 .addFilterBefore(authTokenFilter, UsernamePasswordAuthenticationFilter.class)

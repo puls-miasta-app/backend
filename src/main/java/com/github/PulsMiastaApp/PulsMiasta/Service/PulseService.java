@@ -361,6 +361,15 @@ public class PulseService {
     @Transactional(readOnly = true)
     public PhotoRef resolvePhotoForUser(Long photoId, Long userId) {
         PulsePhoto photo = loadPhoto(photoId);
+
+        if (photo.getPulse() == null) {
+            boolean isUploader = photo.getUser() != null && userId.equals(photo.getUser().getId());
+            if (!isUploader) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Not allowed to view this photo");
+            }
+            return toRef(photo);
+        }
+
         Pulse pulse = resolveMerged(photo.getPulse());
 
         boolean isOwner = pulse.getUser() != null && userId.equals(pulse.getUser().getId());
