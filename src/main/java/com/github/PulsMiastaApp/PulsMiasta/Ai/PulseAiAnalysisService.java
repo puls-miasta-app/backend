@@ -2,10 +2,8 @@ package com.github.PulsMiastaApp.PulsMiasta.Ai;
 
 import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.Pulse;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.PulsePhoto;
-import com.github.PulsMiastaApp.PulsMiasta.Model.Enums.PulseCategory;
+import com.github.PulsMiastaApp.PulsMiasta.Repository.PulseFeedJdbcRepository;
 import com.github.PulsMiastaApp.PulsMiasta.Repository.PulsePhotoRepository;
-import com.github.PulsMiastaApp.PulsMiasta.Repository.PulseRepository;
-import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
@@ -18,9 +16,9 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Fire-and-forget AI image analysis + dedup dla pulses. Analogicznie do poprzedniego
- * ReportAiAnalysisService — caller persistuje pulse pierwszy, a ten serwis dopisuje
- * pola AI i opcjonalnie mergeuje duplikaty.
+ * Fire-and-forget AI image analysis + dedup dla pulses.
+ * Wszystkie operacje na tabeli pulses używają JDBC żeby ominąć bug
+ * Hibernate 7 + MySQL Connector/J (SQLState S1009).
  */
 @Slf4j
 @Service
@@ -32,9 +30,8 @@ public class PulseAiAnalysisService {
 
     private final GeminiImageAnalysisService geminiImageAnalysisService;
     private final GeminiProperties geminiProperties;
-    private final PulseRepository pulseRepository;
+    private final PulseFeedJdbcRepository pulseFeedJdbcRepository;
     private final PulsePhotoRepository pulsePhotoRepository;
-    private final EntityManager entityManager;
 
     @Async("photoUploadExecutor")
     @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -47,7 +44,7 @@ public class PulseAiAnalysisService {
                 return;
             }
 
-            Pulse pulse = pulseRepository.findById(pulseId).orElse(null);
+            Pulse pulse = pulseFeedJdbcRepository.findByIdWithPhotos(pulseId).orElse(null);
             if (pulse == null) {
                 log.warn("Pulse {} not found when writing back AI analysis", pulseId);
                 return;
@@ -61,29 +58,31 @@ public class PulseAiAnalysisService {
 
             double threshold = geminiProperties.getMinConfidence();
             if (result.confidence() < threshold) {
-                log.info("Pulse {}: AI confidence {} below threshold {}, leaving fields empty for manual review",
+                log.info("Pulse {}: AI confidence {} below threshold {}, leaving fields empty",
                         pulseId, result.confidence(), threshold);
                 return;
             }
 
-            Optional<Pulse> primary = findDuplicate(pulse, result.category());
+            Optional<Pulse> primary = findDuplicate(pulse, result.category() != null ? result.category().name() : null);
             if (primary.isPresent()) {
                 mergeInto(pulse, primary.get());
                 return;
             }
 
-            pulse.setCategory(result.category());
-            pulse.setPriority(result.priority());
-            if (result.title() != null && !result.title().isBlank()) {
-                pulse.setTitle(result.title());
-            }
-            if (result.description() != null && !result.description().isBlank()) {
-                pulse.setDescription(result.description());
-            }
-            pulse.setAiNote(result.aiNote());
-            pulse.setImageHint(result.imageHint());
-            pulse.setHeat(result.heat());
-            pulseRepository.save(pulse);
+            String title = (result.title() != null && !result.title().isBlank())
+                    ? result.title() : pulse.getTitle();
+            String description = (result.description() != null && !result.description().isBlank())
+                    ? result.description() : pulse.getDescription();
+
+            pulseFeedJdbcRepository.updateAiFields(
+                    pulseId,
+                    result.category() != null ? result.category().name() : null,
+                    result.priority() != null ? result.priority().name() : null,
+                    title,
+                    description,
+                    result.aiNote(),
+                    result.imageHint(),
+                    result.heat());
 
             log.info("AI analysis saved for pulse {}: category={}, priority={}, confidence={}",
                     pulseId, result.category(), result.priority(), result.confidence());
@@ -94,8 +93,8 @@ public class PulseAiAnalysisService {
 
     // ---------- dedup / merge ----------
 
-    private Optional<Pulse> findDuplicate(Pulse pulse, PulseCategory category) {
-        if (pulse.getLatitude() == null || pulse.getLongitude() == null) {
+    private Optional<Pulse> findDuplicate(Pulse pulse, String category) {
+        if (pulse.getLatitude() == null || pulse.getLongitude() == null || category == null) {
             return Optional.empty();
         }
         double lat = pulse.getLatitude();
@@ -106,7 +105,7 @@ public class PulseAiAnalysisService {
 
         LocalDateTime since = LocalDateTime.now().minusDays(DEDUP_WINDOW_DAYS);
 
-        List<Pulse> candidates = pulseRepository.findDuplicateCandidates(
+        List<Pulse> candidates = pulseFeedJdbcRepository.findDuplicateCandidates(
                 pulse.getId(),
                 category,
                 lat - latDelta, lat + latDelta,
@@ -128,15 +127,12 @@ public class PulseAiAnalysisService {
         for (PulsePhoto photo : movedPhotos) {
             photo.setPulse(primary);
         }
-        pulsePhotoRepository.saveAll(movedPhotos);
-        entityManager.flush();
+        if (!movedPhotos.isEmpty()) {
+            pulsePhotoRepository.saveAll(movedPhotos);
+        }
 
-        primary.getPhotos().addAll(movedPhotos);
-        primary.setDuplicateCount(primary.getDuplicateCount() + 1);
-
-        source.setMergedIntoPulseId(primary.getId());
-
-        pulseRepository.saveAll(List.of(primary, source));
+        pulseFeedJdbcRepository.incrementDuplicateCount(primary.getId());
+        pulseFeedJdbcRepository.markMerged(source.getId(), primary.getId());
     }
 
     private static double haversineMeters(double lat1, double lng1, double lat2, double lng2) {

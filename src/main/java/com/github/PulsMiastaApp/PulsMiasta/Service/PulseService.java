@@ -160,6 +160,7 @@ public class PulseService {
      * Reverse-geocoding wywoływany poza transakcją (afterCommit). Aktualizujemy
      * pulse tylko jeżeli pola district/street są nadal puste w momencie zapisu —
      * nie nadpisujemy wartości, które mogła ustawić inna logika.
+     * Używamy JDBC żeby ominąć bug Hibernate 7 + MySQL Connector/J na tabeli pulses.
      */
     @Transactional
     public void enrichLocationAsync(Long pulseId, double latitude, double longitude) {
@@ -168,31 +169,23 @@ public class PulseService {
             if (!addr.hasAny()) {
                 return;
             }
-            Pulse pulse = pulseRepository.findById(pulseId).orElse(null);
+            Pulse pulse = pulseFeedJdbcRepository.findByIdWithPhotos(pulseId).orElse(null);
             if (pulse == null) {
                 return;
             }
-            boolean changed = false;
-            if ((pulse.getDistrict() == null || pulse.getDistrict().isBlank()) && addr.district() != null) {
-                pulse.setDistrict(addr.district());
-                changed = true;
-            }
-            if ((pulse.getStreet() == null || pulse.getStreet().isBlank()) && addr.street() != null) {
-                pulse.setStreet(addr.street());
-                changed = true;
-            }
-            if ((pulse.getCity() == null || pulse.getCity().isBlank()) && addr.city() != null) {
-                pulse.setCity(addr.city());
-                changed = true;
-            }
-            if ((pulse.getAddress() == null || pulse.getAddress().isBlank()) && addr.formattedAddress() != null) {
-                pulse.setAddress(addr.formattedAddress());
-                changed = true;
-            }
+            String district = (pulse.getDistrict() == null || pulse.getDistrict().isBlank()) ? addr.district() : pulse.getDistrict();
+            String street = (pulse.getStreet() == null || pulse.getStreet().isBlank()) ? addr.street() : pulse.getStreet();
+            String city = (pulse.getCity() == null || pulse.getCity().isBlank()) ? addr.city() : pulse.getCity();
+            String address = (pulse.getAddress() == null || pulse.getAddress().isBlank()) ? addr.formattedAddress() : pulse.getAddress();
+
+            boolean changed = !java.util.Objects.equals(district, pulse.getDistrict())
+                    || !java.util.Objects.equals(street, pulse.getStreet())
+                    || !java.util.Objects.equals(city, pulse.getCity())
+                    || !java.util.Objects.equals(address, pulse.getAddress());
+
             if (changed) {
-                pulseRepository.save(pulse);
-                log.info("Enriched pulse {} with district='{}', street='{}'",
-                        pulseId, pulse.getDistrict(), pulse.getStreet());
+                pulseFeedJdbcRepository.updateLocation(pulseId, district, street, city, address);
+                log.info("Enriched pulse {} with district='{}', street='{}'", pulseId, district, street);
             }
         } catch (Exception e) {
             log.warn("enrichLocationAsync failed for pulse {}: {}", pulseId, e.getMessage());
@@ -267,7 +260,7 @@ public class PulseService {
     public Page<Pulse> listForAdmin(PulseStatus status, PulseCategory category, PulsePriority priority,
                                     int page, int size) {
         var pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
-        return pulseRepository.findForAdmin(status, category, priority, pageable);
+        return pulseFeedJdbcRepository.findForAdmin(status, category, priority, pageable);
     }
 
     // ---------- VOTES ----------
@@ -405,10 +398,12 @@ public class PulseService {
 
     @Transactional
     public Pulse updateStatus(Long pulseId, PulseStatus newStatus) {
-        Pulse pulse = pulseRepository.findById(pulseId)
+        // findById via JPA wali S1009 (Hibernate 7 + MySQL Connector/J) — używamy JDBC
+        Pulse pulse = pulseFeedJdbcRepository.findByIdWithPhotos(pulseId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Pulse not found"));
+        pulseFeedJdbcRepository.updateStatusById(pulseId, newStatus.name());
         pulse.setStatus(newStatus);
-        return pulseRepository.save(pulse);
+        return pulse;
     }
 
     // ---------- HELPERS ----------

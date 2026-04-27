@@ -5,6 +5,7 @@ import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.Pulse;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.PulseComment;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.User;
 import com.github.PulsMiastaApp.PulsMiasta.Repository.PulseCommentRepository;
+import com.github.PulsMiastaApp.PulsMiasta.Repository.PulseFeedJdbcRepository;
 import com.github.PulsMiastaApp.PulsMiasta.Repository.PulseRepository;
 import com.github.PulsMiastaApp.PulsMiasta.Repository.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -21,6 +22,7 @@ public class PulseCommentService {
 
     private final PulseCommentRepository commentRepository;
     private final PulseRepository pulseRepository;
+    private final PulseFeedJdbcRepository pulseFeedJdbcRepository;
     private final UserRepository userRepository;
 
     @Transactional(readOnly = true)
@@ -44,26 +46,27 @@ public class PulseCommentService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
 
-        // Lock pulse row before read-modify-write on commentsCount to prevent
-        // concurrent comment inserts from racing on the counter update.
-        Pulse pulse = pulseRepository.findByIdForUpdate(pulseId)
+        // JDBC SELECT FOR UPDATE — JPA @Lock(@PESSIMISTIC_WRITE) wali S1009 na tabeli pulses
+        pulseFeedJdbcRepository.findByIdForUpdate(pulseId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Pulse not found"));
 
+        // getReferenceById tworzy proxy (bez SELECT) — bezpieczne dla ustawienia FK na komentarzu
+        Pulse pulseRef = pulseRepository.getReferenceById(pulseId);
+
         PulseComment c = new PulseComment();
-        c.setPulse(pulse);
+        c.setPulse(pulseRef);
         c.setUser(user);
         c.setBody(trimmed);
         commentRepository.save(c);
 
         int newCount = (int) commentRepository.countByPulseId(pulseId);
-        pulse.setCommentsCount(newCount);
-        pulseRepository.save(pulse);
+        pulseFeedJdbcRepository.updateCommentsCount(pulseId, newCount);
 
         return toResponse(c);
     }
 
     private void ensurePulseExists(Long pulseId) {
-        if (!pulseRepository.existsById(pulseId)) {
+        if (!pulseFeedJdbcRepository.existsById(pulseId)) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Pulse not found");
         }
     }

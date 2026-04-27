@@ -6,7 +6,6 @@ import com.github.PulsMiastaApp.PulsMiasta.Controller.PulseMapper;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.User;
 import com.github.PulsMiastaApp.PulsMiasta.Repository.PulseCommentRepository;
 import com.github.PulsMiastaApp.PulsMiasta.Repository.PulseFeedJdbcRepository;
-import com.github.PulsMiastaApp.PulsMiasta.Repository.PulseRepository;
 import com.github.PulsMiastaApp.PulsMiasta.Repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -22,7 +21,6 @@ import java.util.List;
 public class UserProfileService {
 
     private final UserRepository userRepository;
-    private final PulseRepository pulseRepository;
     private final PulseFeedJdbcRepository pulseFeedJdbcRepository;
     private final PulseCommentRepository commentRepository;
 
@@ -46,11 +44,11 @@ public class UserProfileService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
 
-        var statsRow = pulseRepository.aggregateStatsForUser(userId);
-        long pulsesSubmitted = statsRow == null ? 0 : statsRow.getPulsesSubmitted();
-        long totalUp = statsRow == null ? 0 : statsRow.getTotalUpvotes();
-        long totalDown = statsRow == null ? 0 : statsRow.getTotalDownvotes();
-        long resolved = statsRow == null ? 0 : statsRow.getResolvedPulses();
+        var statsRow = pulseFeedJdbcRepository.aggregateStatsForUser(userId);
+        long pulsesSubmitted = statsRow.pulsesSubmitted();
+        long totalUp = statsRow.totalUpvotes();
+        long totalDown = statsRow.totalDownvotes();
+        long resolved = statsRow.resolvedPulses();
         long commentsPosted = commentRepository.countByUserId(userId);
 
         var stats = new UserProfileResponse.Stats(

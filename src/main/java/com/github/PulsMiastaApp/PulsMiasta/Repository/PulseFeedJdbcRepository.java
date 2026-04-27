@@ -7,6 +7,8 @@ import com.github.PulsMiastaApp.PulsMiasta.Model.Enums.PulseCategory;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Enums.PulsePriority;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Enums.PulseStatus;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
@@ -115,6 +117,143 @@ public class PulseFeedJdbcRepository {
         jdbcTemplate.update(
                 "UPDATE pulses SET upvotes = ?, downvotes = ?, updated_at = NOW() WHERE id = ?",
                 upvotes, downvotes, pulseId);
+    }
+
+    public void updateStatusById(Long pulseId, String status) {
+        jdbcTemplate.update(
+                "UPDATE pulses SET status = ?, updated_at = NOW() WHERE id = ?",
+                status, pulseId);
+    }
+
+    public void updateLocation(Long pulseId, String district, String street, String city, String address) {
+        jdbcTemplate.update(
+                "UPDATE pulses SET district = ?, street = ?, city = ?, address = ?, updated_at = NOW() WHERE id = ?",
+                district, street, city, address, pulseId);
+    }
+
+    public void updateAiFields(Long pulseId, String category, String priority,
+                               String title, String description,
+                               String aiNote, String imageHint, String heat) {
+        jdbcTemplate.update(
+                "UPDATE pulses SET category = ?, priority = ?, title = ?, description = ?, " +
+                "ai_note = ?, image_hint = ?, heat = ?, updated_at = NOW() WHERE id = ?",
+                category, priority, title, description, aiNote, imageHint, heat, pulseId);
+    }
+
+    public void markMerged(Long sourceId, Long primaryId) {
+        jdbcTemplate.update(
+                "UPDATE pulses SET merged_into_pulse_id = ?, updated_at = NOW() WHERE id = ?",
+                primaryId, sourceId);
+    }
+
+    public void incrementDuplicateCount(Long primaryId) {
+        jdbcTemplate.update(
+                "UPDATE pulses SET duplicate_count = duplicate_count + 1, updated_at = NOW() WHERE id = ?",
+                primaryId);
+    }
+
+    public record PulseStats(long pulsesSubmitted, long totalUpvotes, long totalDownvotes, long resolvedPulses) {}
+
+    public PulseStats aggregateStatsForUser(Long userId) {
+        String sql = """
+                SELECT COUNT(*) AS pulses_submitted,
+                       COALESCE(SUM(upvotes), 0) AS total_upvotes,
+                       COALESCE(SUM(downvotes), 0) AS total_downvotes,
+                       COALESCE(SUM(CASE WHEN status = 'RESOLVED' THEN 1 ELSE 0 END), 0) AS resolved_pulses
+                FROM pulses WHERE user_id = ?
+                """;
+        long[] result = {0, 0, 0, 0};
+        jdbcTemplate.execute((java.sql.Connection conn) -> {
+            try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                ps.setLong(1, userId);
+                if (ps.execute()) {
+                    try (ResultSet rs = ps.getResultSet()) {
+                        if (rs.next()) {
+                            result[0] = rs.getLong("pulses_submitted");
+                            result[1] = rs.getLong("total_upvotes");
+                            result[2] = rs.getLong("total_downvotes");
+                            result[3] = rs.getLong("resolved_pulses");
+                        }
+                    }
+                }
+            }
+            return null;
+        });
+        return new PulseStats(result[0], result[1], result[2], result[3]);
+    }
+
+    public boolean existsById(Long id) {
+        String sql = "SELECT COUNT(*) FROM pulses WHERE id = ?";
+        Long count = jdbcTemplate.execute((java.sql.Connection conn) -> {
+            try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                ps.setLong(1, id);
+                if (ps.execute()) {
+                    try (ResultSet rs = ps.getResultSet()) {
+                        return rs.next() ? rs.getLong(1) : 0L;
+                    }
+                }
+                return 0L;
+            }
+        });
+        return count != null && count > 0;
+    }
+
+    public void updateCommentsCount(Long pulseId, int count) {
+        jdbcTemplate.update(
+                "UPDATE pulses SET comments_count = ?, updated_at = NOW() WHERE id = ?",
+                count, pulseId);
+    }
+
+    public List<Pulse> findDuplicateCandidates(Long excludeId, String category,
+                                               double minLat, double maxLat,
+                                               double minLng, double maxLng,
+                                               java.time.LocalDateTime since) {
+        String sql = BASE_PULSE_SELECT + """
+                WHERE p.id <> ?
+                  AND p.merged_into_pulse_id IS NULL
+                  AND p.category = ?
+                  AND p.status IN ('NEW', 'IN_PROGRESS')
+                  AND p.latitude BETWEEN ? AND ?
+                  AND p.longitude BETWEEN ? AND ?
+                  AND p.created_at >= ?
+                ORDER BY p.created_at ASC
+                """;
+        List<Object> params = List.of(
+                excludeId, category, minLat, maxLat, minLng, maxLng,
+                java.sql.Timestamp.valueOf(since));
+        return runPulseQuery(sql, params);
+    }
+
+    public Page<Pulse> findForAdmin(PulseStatus status, PulseCategory category,
+                                    PulsePriority priority, Pageable pageable) {
+        StringBuilder where = new StringBuilder(" WHERE p.merged_into_pulse_id IS NULL");
+        List<Object> params = new ArrayList<>();
+        if (status != null) { where.append(" AND p.status = ?"); params.add(status.name()); }
+        if (category != null) { where.append(" AND p.category = ?"); params.add(category.name()); }
+        if (priority != null) { where.append(" AND p.priority = ?"); params.add(priority.name()); }
+
+        String countSql = "SELECT COUNT(*) FROM pulses p" + where;
+        long total = jdbcTemplate.execute((java.sql.Connection conn) -> {
+            try (PreparedStatement ps = conn.prepareStatement(countSql)) {
+                for (int i = 0; i < params.size(); i++) ps.setObject(i + 1, params.get(i));
+                if (ps.execute()) {
+                    try (ResultSet rs = ps.getResultSet()) {
+                        return rs.next() ? rs.getLong(1) : 0L;
+                    }
+                }
+                return 0L;
+            }
+        });
+
+        String dataSql = BASE_PULSE_SELECT + where
+                + " ORDER BY p.created_at DESC LIMIT ? OFFSET ?";
+        List<Object> dataParams = new ArrayList<>(params);
+        dataParams.add(pageable.getPageSize());
+        dataParams.add(pageable.getOffset());
+
+        List<Pulse> pulses = runPulseQuery(dataSql, dataParams);
+        attachPhotos(pulses);
+        return new org.springframework.data.domain.PageImpl<>(pulses, pageable, total);
     }
 
     private List<Pulse> runPulseQuery(String sql, List<Object> params) {
