@@ -31,6 +31,10 @@ public class PulsePhoto {
     @JoinColumn(name = "pulse_id")
     private Pulse pulse;
 
+    /** Bezpośredni dostęp do FK pulse_id bez wyzwalania lazy load (omija S1009 w Hibernate 7 + MySQL Connector/J). */
+    @Column(name = "pulse_id", insertable = false, updatable = false)
+    private Long pulseId;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "user_id", nullable = false)
     private User user;

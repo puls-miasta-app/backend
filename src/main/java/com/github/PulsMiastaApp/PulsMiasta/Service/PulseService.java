@@ -355,7 +355,11 @@ public class PulseService {
     public PhotoRef resolvePhotoForUser(Long photoId, Long userId) {
         PulsePhoto photo = loadPhoto(photoId);
 
-        if (photo.getPulse() == null) {
+        // Używamy pulseId (zwykły @Column) zamiast getPulse() —
+        // getPulse() wyzwala Hibernate lazy load → SELECT na pulses → S1009.
+        Long pulseId = photo.getPulseId();
+
+        if (pulseId == null) {
             boolean isUploader = photo.getUser() != null && userId.equals(photo.getUser().getId());
             if (!isUploader) {
                 throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Not allowed to view this photo");
@@ -363,7 +367,9 @@ public class PulseService {
             return toRef(photo);
         }
 
-        Pulse pulse = resolveMerged(photo.getPulse());
+        Pulse pulse = pulseFeedJdbcRepository.findByIdWithPhotos(pulseId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Pulse not found"));
+        pulse = resolveMerged(pulse);
 
         boolean isOwner = pulse.getUser() != null && userId.equals(pulse.getUser().getId());
         boolean hasContributed = pulse.getPhotos().stream()
