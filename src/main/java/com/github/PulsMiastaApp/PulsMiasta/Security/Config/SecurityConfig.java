@@ -72,6 +72,7 @@ public class SecurityConfig {
                                 "/v1/auth/passkey/credentials/**").authenticated()
                         // Sudo mode — check status, begin/finish verification (needs session)
                         .requestMatchers("/v1/auth/sudo/**").authenticated()
+                        .requestMatchers("/v1/map/**").permitAll()
                         .requestMatchers("/v1/test/**").permitAll()
                         // Urzędnik/admin endpoints — dostęp dla wszystkich ról adminów
                         .requestMatchers("/v1/admin/**").hasAnyRole(

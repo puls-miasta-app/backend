@@ -557,8 +557,17 @@ public class AuthController {
 
     @Schema(name = "LoginSuccessResponse")
     private static class LoginSuccessResponse extends SuccessResponse<String> {
+        @lombok.Getter
+        private final boolean mustChangePassword;
+
         public LoginSuccessResponse() {
             super(true, "Logged in successfully");
+            this.mustChangePassword = false;
+        }
+
+        public LoginSuccessResponse(boolean mustChangePassword) {
+            super(true, "Logged in successfully");
+            this.mustChangePassword = mustChangePassword;
         }
     }
 

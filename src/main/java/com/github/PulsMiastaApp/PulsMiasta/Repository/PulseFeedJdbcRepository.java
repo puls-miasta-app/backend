@@ -15,7 +15,9 @@ import org.springframework.stereotype.Repository;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.sql.Timestamp;
+import java.sql.Types;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -294,6 +296,120 @@ public class PulseFeedJdbcRepository {
         List<Pulse> pulses = runPulseQuery(dataSql, dataParams);
         attachPhotos(pulses);
         return new org.springframework.data.domain.PageImpl<>(pulses, pageable, total);
+    }
+
+    /**
+     * Wstawia nowy puls bezpośrednio przez JDBC (używane przy rozdzielaniu zgłoszeń
+     * z wieloma zagrożeniami różnych kategorii). Zwraca wygenerowane id.
+     */
+    public Long insertPulse(Long userId, String category, String priority,
+                             String title, String description,
+                             String aiNote, String imageHint, String heat,
+                             Double latitude, Double longitude,
+                             String address, String district, String street, String city,
+                             String gmina, String powiat, String wojewodztwo) {
+        String sql = """
+                INSERT INTO pulses
+                  (user_id, category, priority, status, title, description,
+                   ai_note, image_hint, heat,
+                   latitude, longitude, address, district, street, city,
+                   gmina, powiat, wojewodztwo,
+                   upvotes, downvotes, comments_count, duplicate_count,
+                   created_at, updated_at)
+                VALUES (?, ?, ?, 'NEW', ?, ?,
+                        ?, ?, ?,
+                        ?, ?, ?, ?, ?, ?,
+                        ?, ?, ?,
+                        0, 0, 0, 1,
+                        NOW(), NOW())
+                """;
+        return jdbcTemplate.execute((java.sql.Connection conn) -> {
+            try (PreparedStatement ps = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
+                ps.setLong(1, userId);
+                ps.setString(2, category);
+                ps.setString(3, priority);
+                ps.setString(4, title);
+                ps.setString(5, description);
+                ps.setString(6, aiNote);
+                ps.setString(7, imageHint);
+                ps.setString(8, heat);
+                setNullableDouble(ps, 9, latitude);
+                setNullableDouble(ps, 10, longitude);
+                ps.setString(11, address);
+                ps.setString(12, district);
+                ps.setString(13, street);
+                ps.setString(14, city);
+                ps.setString(15, gmina);
+                ps.setString(16, powiat);
+                ps.setString(17, wojewodztwo);
+                ps.executeUpdate();
+                try (ResultSet keys = ps.getGeneratedKeys()) {
+                    if (keys.next()) return keys.getLong(1);
+                    throw new IllegalStateException("INSERT pulses did not return generated key");
+                }
+            }
+        });
+    }
+
+    /**
+     * Wstawia rekord zdjęcia powiązany z istniejącym pulsem. Używane do dołączania
+     * referencji do tego samego obiektu S3 przy tworzeniu split-pulsów.
+     */
+    public void insertPulsePhoto(Long pulseId, Long userId, String objectKey,
+                                  String originalFilename, String contentType, Long fileSize) {
+        String sql = """
+                INSERT INTO pulse_photos
+                  (pulse_id, user_id, object_key, original_filename, content_type, file_size, uploaded_at)
+                VALUES (?, ?, ?, ?, ?, ?, NOW())
+                """;
+        jdbcTemplate.execute((java.sql.Connection conn) -> {
+            try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                ps.setLong(1, pulseId);
+                if (userId != null) ps.setLong(2, userId); else ps.setNull(2, Types.BIGINT);
+                ps.setString(3, objectKey);
+                ps.setString(4, originalFilename);
+                ps.setString(5, contentType);
+                if (fileSize != null) ps.setLong(6, fileSize); else ps.setNull(6, Types.BIGINT);
+                ps.executeUpdate();
+            }
+            return null;
+        });
+    }
+
+    public List<Pulse> findInBounds(double swLat, double swLng, double neLat, double neLng,
+                                     PulseCategory category, PulseStatus status, int limit) {
+        StringBuilder sql = new StringBuilder(BASE_PULSE_SELECT);
+        sql.append(" WHERE p.merged_into_pulse_id IS NULL");
+        sql.append("   AND p.latitude IS NOT NULL AND p.longitude IS NOT NULL");
+        sql.append("   AND p.latitude BETWEEN ? AND ?");
+        if (swLng <= neLng) {
+            sql.append("   AND p.longitude BETWEEN ? AND ?");
+        } else {
+            sql.append("   AND (p.longitude >= ? OR p.longitude <= ?)");
+        }
+        List<Object> params = new ArrayList<>();
+        params.add(swLat);
+        params.add(neLat);
+        params.add(swLng);
+        params.add(neLng);
+
+        if (category != null) {
+            sql.append("   AND p.category = ?");
+            params.add(category.name());
+        }
+        if (status != null) {
+            sql.append("   AND p.status = ?");
+            params.add(status.name());
+        }
+        sql.append(" ORDER BY p.created_at DESC LIMIT ?");
+        params.add(limit);
+
+        return runPulseQuery(sql.toString(), params);
+    }
+
+    private static void setNullableDouble(PreparedStatement ps, int index, Double value) throws SQLException {
+        if (value != null) ps.setDouble(index, value);
+        else ps.setNull(index, Types.DOUBLE);
     }
 
     private List<Pulse> runPulseQuery(String sql, List<Object> params) {
