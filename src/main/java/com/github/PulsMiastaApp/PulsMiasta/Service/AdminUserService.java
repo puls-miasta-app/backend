@@ -1,6 +1,7 @@
 package com.github.PulsMiastaApp.PulsMiasta.Service;
 
 import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.CreateAdminRequest;
+import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.UpdateAdminRequest;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.User;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Enums.UserRole;
 import com.github.PulsMiastaApp.PulsMiasta.Repository.UserRepository;
@@ -59,10 +60,11 @@ public class AdminUserService {
         newAdmin.setEmailVerified(true);
         newAdmin.setEmailOtpEnabled(true);
 
-        newAdmin.setManagedWojewodztwo(resolveWojewodztwo(creatorRole, creator, req));
-        newAdmin.setManagedPowiat(resolvePowiat(creatorRole, creator, targetRole, req));
-        newAdmin.setManagedGmina(resolveGmina(creatorRole, creator, targetRole, req));
+        newAdmin.setManagedWojewodztwo(GeoNormalizer.normalizeWojewodztwo(resolveWojewodztwo(creatorRole, creator, req)));
+        newAdmin.setManagedPowiat(GeoNormalizer.normalizePowiat(resolvePowiat(creatorRole, creator, targetRole, req)));
+        newAdmin.setManagedGmina(GeoNormalizer.normalizeGmina(resolveGmina(creatorRole, creator, targetRole, req)));
         newAdmin.setManagedMiasto(targetRole == UserRole.ADMIN_MIASTA ? req.managedMiasto() : null);
+        newAdmin.setMustChangePassword(true);
 
         return userRepository.save(newAdmin);
     }
@@ -86,6 +88,43 @@ public class AdminUserService {
                     ALL_ADMIN_ROLES, caller.getManagedWojewodztwo(), caller.getManagedPowiat(), caller.getManagedGmina());
             default -> throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Brak uprawnień");
         };
+    }
+
+    /**
+     * Zmienia rolę i/lub obszar zarządzania istniejącego admina.
+     * Caller musi mieć uprawnienia do nadania nowej roli i nowy obszar musi mieścić się w jego zasięgu.
+     */
+    @Transactional
+    public User updateAdmin(Long callerId, Long targetId, UpdateAdminRequest req) {
+        User caller = userRepository.findById(callerId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Caller not found"));
+        User target = userRepository.findById(targetId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Admin nie znaleziony"));
+
+        UserRole callerRole = parseRole(caller.getRole());
+        UserRole targetRole = parseRole(req.role());
+
+        if (!callerRole.canAssignRole(targetRole)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Rola " + callerRole.name() + " nie może nadać roli " + targetRole.name());
+        }
+
+        validateScopeFields(targetRole, new CreateAdminRequest(
+                target.getEmail(), target.getFirstName(), target.getLastName(),
+                "", req.role(),
+                req.managedWojewodztwo(), req.managedPowiat(), req.managedGmina(), req.managedMiasto()));
+        validateCreatorScope(callerRole, caller, targetRole, new CreateAdminRequest(
+                target.getEmail(), target.getFirstName(), target.getLastName(),
+                "", req.role(),
+                req.managedWojewodztwo(), req.managedPowiat(), req.managedGmina(), req.managedMiasto()));
+
+        target.setRole(targetRole.name());
+        target.setManagedWojewodztwo(GeoNormalizer.normalizeWojewodztwo(req.managedWojewodztwo()));
+        target.setManagedPowiat(GeoNormalizer.normalizePowiat(req.managedPowiat()));
+        target.setManagedGmina(GeoNormalizer.normalizeGmina(req.managedGmina()));
+        target.setManagedMiasto(targetRole == UserRole.ADMIN_MIASTA ? req.managedMiasto() : null);
+
+        return userRepository.save(target);
     }
 
     /**
@@ -206,7 +245,9 @@ public class AdminUserService {
     }
 
     private static void assertScopeMatch(String creatorValue, String requestValue, String fieldName) {
-        if (creatorValue == null || !creatorValue.equalsIgnoreCase(requestValue)) {
+        String a = creatorValue == null ? null : creatorValue.trim().toLowerCase(java.util.Locale.ROOT);
+        String b = requestValue == null  ? null : requestValue.trim().toLowerCase(java.util.Locale.ROOT);
+        if (a == null || !a.equals(b)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN,
                     "Pole " + fieldName + " musi zgadzać się z obszarem zarządzanym przez Twoje konto");
         }

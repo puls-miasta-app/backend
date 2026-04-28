@@ -36,6 +36,7 @@ public final class PulseMapper {
                 nullToEmpty(pulse.getDistrict()),
                 nullToEmpty(pulse.getStreet()),
                 nullToEmpty(pulse.getCity()),
+                nullToEmpty(pulse.getAddress()),
                 formatRelativeTime(pulse.getCreatedAt()),
                 pulse.getCommentsCount() == null ? 0 : pulse.getCommentsCount(),
                 pulse.score(),

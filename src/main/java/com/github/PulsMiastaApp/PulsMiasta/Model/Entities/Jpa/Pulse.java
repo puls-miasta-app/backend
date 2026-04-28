@@ -84,6 +84,18 @@ public class Pulse {
     @Column(name = "city", length = 120)
     private String city;
 
+    /** Gmina — wypełniana przez reverse geocoding (znormalizowana lowercase, bez prefiksu "gmina "). */
+    @Column(name = "gmina", length = 120)
+    private String gmina;
+
+    /** Powiat — wypełniany przez reverse geocoding (znormalizowany lowercase, bez prefiksu "powiat "). */
+    @Column(name = "powiat", length = 120)
+    private String powiat;
+
+    /** Województwo — wypełniane przez reverse geocoding (znormalizowane lowercase, bez prefiksu "województwo "). */
+    @Column(name = "wojewodztwo", length = 120)
+    private String wojewodztwo;
+
     /** Tekstowy marker nasilenia (np. "Wysokie", "Średnie", "Niskie"). Wyświetlany w feedzie mobile. */
     @Column(name = "heat", length = 30)
     private String heat;

@@ -85,9 +85,12 @@ public class ReverseGeocodingService {
             String district = pickDistrict(address);
             String street = pickStreet(address);
             String city = pickCity(address);
+            String gmina = GeoNormalizer.normalizeGmina(pickGmina(address, city));
+            String powiat = GeoNormalizer.normalizePowiat(asString(address.get("county")));
+            String wojewodztwo = GeoNormalizer.normalizeWojewodztwo(asString(address.get("state")));
             String formatted = asString(response.get("display_name"));
 
-            return new GeocodedAddress(district, street, city, formatted);
+            return new GeocodedAddress(district, street, city, formatted, gmina, powiat, wojewodztwo);
         } catch (Exception e) {
             log.warn("Reverse geocoding failed for ({}, {}): {}", latitude, longitude, e.getMessage());
             return GeocodedAddress.empty();
@@ -122,6 +125,18 @@ public class ReverseGeocodingService {
         return null;
     }
 
+    /**
+     * Nominatim zwraca gminę w polu "municipality" (np. "Gmina Olsztyn" lub "Olsztyn").
+     * Jeśli brakuje, fallback do city (gmina miejska = miasto).
+     */
+    private String pickGmina(Map<String, Object> address, String city) {
+        String municipality = asString(address.get("municipality"));
+        if (municipality != null && !municipality.isBlank()) {
+            return municipality;
+        }
+        return city;
+    }
+
     private String pickStreet(Map<String, Object> address) {
         String[] keys = {"road", "pedestrian", "footway", "cycleway", "path", "residential"};
         for (String k : keys) {
@@ -141,13 +156,22 @@ public class ReverseGeocodingService {
      * Wynik reverse geocodingu. Pola mogą być {@code null}, jeśli Nominatim nie zwrócił
      * odpowiedniej klasyfikacji (np. punkt w środku lasu).
      */
-    public record GeocodedAddress(String district, String street, String city, String formattedAddress) {
+    public record GeocodedAddress(
+            String district,
+            String street,
+            String city,
+            String formattedAddress,
+            String gmina,
+            String powiat,
+            String wojewodztwo
+    ) {
         public static GeocodedAddress empty() {
-            return new GeocodedAddress(null, null, null, null);
+            return new GeocodedAddress(null, null, null, null, null, null, null);
         }
 
         public boolean hasAny() {
-            return district != null || street != null || city != null || formattedAddress != null;
+            return district != null || street != null || city != null || formattedAddress != null
+                    || gmina != null || powiat != null || wojewodztwo != null;
         }
     }
 }

@@ -14,6 +14,7 @@ public record PulseResponse(
         String district,
         String street,
         String city,
+        String address,
         String time,
         int comments,
         int score,

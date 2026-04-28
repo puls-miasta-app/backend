@@ -18,6 +18,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -61,7 +62,8 @@ public class PulseController {
             @AuthenticationPrincipal AuthPrincipal principal
     ) {
         requireAuthenticated(principal);
-        List<Pulse> pulses = pulseService.listFeed(city, district, street);
+        List<Pulse> pulses = pulseService.listFeed(city, district, street,
+                principal.isAdmin(), principal.id());
         var pulseIds = pulses.stream().map(Pulse::getId).toList();
         var votes = pulseService.getUserVotes(pulseIds, principal.id());
         List<PulseResponse> items = pulses.stream()
@@ -158,6 +160,16 @@ public class PulseController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "direction is required");
         }
         VotePulseResponse response = pulseService.vote(principal.id(), pulseId, direction);
+        return ResponseEntity.ok(SuccessResponse.of(response));
+    }
+
+    @DeleteMapping(path = "/vote/{pulseId}")
+    public ResponseEntity<SuccessResponse<VotePulseResponse>> removeVote(
+            @PathVariable("pulseId") Long pulseId,
+            @AuthenticationPrincipal AuthPrincipal principal
+    ) {
+        requireAuthenticated(principal);
+        VotePulseResponse response = pulseService.removeVote(principal.id(), pulseId);
         return ResponseEntity.ok(SuccessResponse.of(response));
     }
 

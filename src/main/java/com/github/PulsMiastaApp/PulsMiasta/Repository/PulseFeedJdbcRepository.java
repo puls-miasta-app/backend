@@ -45,6 +45,7 @@ public class PulseFeedJdbcRepository {
             SELECT p.id, p.user_id, u.email,
                    p.category, p.priority, p.status, p.title, p.description,
                    p.latitude, p.longitude, p.address, p.district, p.street, p.city,
+                   p.gmina, p.powiat, p.wojewodztwo,
                    p.heat, p.ai_note, p.image_hint,
                    p.comments_count, p.upvotes, p.downvotes, p.duplicate_count,
                    p.merged_into_pulse_id, p.created_at, p.updated_at
@@ -52,10 +53,22 @@ public class PulseFeedJdbcRepository {
               LEFT JOIN users u ON u.id = p.user_id
             """;
 
-    public List<Pulse> findFeed(String city, String district, String street) {
+    public List<Pulse> findFeed(String city, String district, String street,
+                                boolean isAdmin, Long userId) {
         StringBuilder sql = new StringBuilder(BASE_PULSE_SELECT);
         sql.append(" WHERE p.merged_into_pulse_id IS NULL");
-        List<Object> params = new ArrayList<>(3);
+        List<Object> params = new ArrayList<>();
+
+        if (!isAdmin) {
+            String adminOnlyList = java.util.Arrays.stream(PulseCategory.values())
+                    .filter(PulseCategory::isAdminOnly)
+                    .map(Enum::name)
+                    .collect(java.util.stream.Collectors.joining("','", "'", "'"));
+            sql.append(" AND (p.category NOT IN (").append(adminOnlyList).append(")");
+            sql.append(" OR p.user_id = ?)");
+            params.add(userId);
+        }
+
         if (city != null) {
             sql.append(" AND p.city = ?");
             params.add(city);
@@ -125,10 +138,24 @@ public class PulseFeedJdbcRepository {
                 status, pulseId);
     }
 
-    public void updateLocation(Long pulseId, String district, String street, String city, String address) {
+    public void updateLocation(Long pulseId, String district, String street, String city, String address,
+                               String gmina, String powiat, String wojewodztwo) {
         jdbcTemplate.update(
-                "UPDATE pulses SET district = ?, street = ?, city = ?, address = ?, updated_at = NOW() WHERE id = ?",
-                district, street, city, address, pulseId);
+                "UPDATE pulses SET district = ?, street = ?, city = ?, address = ?, " +
+                "gmina = ?, powiat = ?, wojewodztwo = ?, updated_at = NOW() WHERE id = ?",
+                district, street, city, address, gmina, powiat, wojewodztwo, pulseId);
+    }
+
+    public void updateAiNote(Long pulseId, String note) {
+        jdbcTemplate.update(
+                "UPDATE pulses SET ai_note = ?, updated_at = NOW() WHERE id = ?",
+                note, pulseId);
+    }
+
+    public void updateAiNoteAndImageHint(Long pulseId, String note, String imageHint) {
+        jdbcTemplate.update(
+                "UPDATE pulses SET ai_note = ?, image_hint = ?, updated_at = NOW() WHERE id = ?",
+                note, imageHint, pulseId);
     }
 
     public void updateAiFields(Long pulseId, String category, String priority,
@@ -225,9 +252,22 @@ public class PulseFeedJdbcRepository {
     }
 
     public Page<Pulse> findForAdmin(PulseStatus status, PulseCategory category,
-                                    PulsePriority priority, Pageable pageable) {
+                                    PulsePriority priority,
+                                    String scopeColumn, String scopeValue,
+                                    Pageable pageable) {
         StringBuilder where = new StringBuilder(" WHERE p.merged_into_pulse_id IS NULL");
         List<Object> params = new ArrayList<>();
+        if (scopeColumn != null && scopeValue != null) {
+            String col = switch (scopeColumn) {
+                case "city" -> "p.city";
+                case "gmina" -> "p.gmina";
+                case "powiat" -> "p.powiat";
+                case "wojewodztwo" -> "p.wojewodztwo";
+                default -> throw new IllegalArgumentException("Unknown scope column: " + scopeColumn);
+            };
+            where.append(" AND ").append(col).append(" = ?");
+            params.add(scopeValue);
+        }
         if (status != null) { where.append(" AND p.status = ?"); params.add(status.name()); }
         if (category != null) { where.append(" AND p.category = ?"); params.add(category.name()); }
         if (priority != null) { where.append(" AND p.priority = ?"); params.add(priority.name()); }
@@ -342,6 +382,9 @@ public class PulseFeedJdbcRepository {
         p.setDistrict(rs.getString("district"));
         p.setStreet(rs.getString("street"));
         p.setCity(rs.getString("city"));
+        p.setGmina(rs.getString("gmina"));
+        p.setPowiat(rs.getString("powiat"));
+        p.setWojewodztwo(rs.getString("wojewodztwo"));
         p.setHeat(rs.getString("heat"));
         p.setAiNote(rs.getString("ai_note"));
         p.setImageHint(rs.getString("image_hint"));

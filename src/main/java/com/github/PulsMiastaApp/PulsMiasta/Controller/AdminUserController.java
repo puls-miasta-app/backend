@@ -3,6 +3,7 @@ package com.github.PulsMiastaApp.PulsMiasta.Controller;
 import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.AdminUserResponse;
 import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.CreateAdminRequest;
 import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.SuccessResponse;
+import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.UpdateAdminRequest;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.User;
 import com.github.PulsMiastaApp.PulsMiasta.Security.Model.AuthPrincipal;
 import com.github.PulsMiastaApp.PulsMiasta.Service.AdminUserService;
@@ -14,6 +15,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -69,6 +71,17 @@ public class AdminUserController {
         return ResponseEntity.ok(SuccessResponse.of(Map.of("admins", admins)));
     }
 
+    @PatchMapping("/{id}")
+    public ResponseEntity<SuccessResponse<AdminUserResponse>> updateAdmin(
+            @PathVariable("id") Long targetId,
+            @Valid @RequestBody UpdateAdminRequest request,
+            @AuthenticationPrincipal AuthPrincipal principal
+    ) {
+        requireAdmin(principal);
+        User updated = adminUserService.updateAdmin(principal.id(), targetId, request);
+        return ResponseEntity.ok(SuccessResponse.of(AdminUserResponse.from(updated)));
+    }
+
     @DeleteMapping("/{id}")
     public ResponseEntity<SuccessResponse<Void>> revokeAdmin(
             @PathVariable("id") Long targetId,
@@ -79,9 +92,12 @@ public class AdminUserController {
         return ResponseEntity.ok(SuccessResponse.of(null));
     }
 
-    private void requireAdmin(AuthPrincipal principal) {
+    private static void requireAdmin(AuthPrincipal principal) {
         if (principal == null) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication required");
+        }
+        if (!principal.isAdmin()) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Admin access required");
         }
     }
 }

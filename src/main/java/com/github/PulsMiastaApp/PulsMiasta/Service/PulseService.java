@@ -74,9 +74,7 @@ public class PulseService {
         pulseRepository.save(pulse);
 
         final Long pulseId = pulse.getId();
-        final boolean needsGeocoding = latitude != null && longitude != null
-                && (district == null || street == null || city == null);
-        if (needsGeocoding) {
+        if (latitude != null && longitude != null) {
             registerAfterCommit(() -> enrichLocationAsync(pulseId, latitude, longitude));
         }
 
@@ -147,7 +145,7 @@ public class PulseService {
         registerAfterCommit(() ->
                 pulseAiAnalysisService.analyseAsync(pulseId, imageBytes, contentType));
 
-        if (latitude != null && longitude != null && (district == null || street == null || city == null)) {
+        if (latitude != null && longitude != null) {
             registerAfterCommit(() -> enrichLocationAsync(pulseId, latitude, longitude));
         }
 
@@ -173,31 +171,45 @@ public class PulseService {
             if (pulse == null) {
                 return;
             }
-            String district = (pulse.getDistrict() == null || pulse.getDistrict().isBlank()) ? addr.district() : pulse.getDistrict();
-            String street = (pulse.getStreet() == null || pulse.getStreet().isBlank()) ? addr.street() : pulse.getStreet();
-            String city = (pulse.getCity() == null || pulse.getCity().isBlank()) ? addr.city() : pulse.getCity();
-            String address = (pulse.getAddress() == null || pulse.getAddress().isBlank()) ? addr.formattedAddress() : pulse.getAddress();
+            String district   = blank(pulse.getDistrict())   ? addr.district()         : pulse.getDistrict();
+            String street     = blank(pulse.getStreet())      ? addr.street()           : pulse.getStreet();
+            String city       = blank(pulse.getCity())        ? addr.city()             : pulse.getCity();
+            String address    = blank(pulse.getAddress())     ? addr.formattedAddress() : pulse.getAddress();
+            String gmina      = blank(pulse.getGmina())       ? addr.gmina()            : pulse.getGmina();
+            String powiat     = blank(pulse.getPowiat())      ? addr.powiat()           : pulse.getPowiat();
+            String woj        = blank(pulse.getWojewodztwo()) ? addr.wojewodztwo()      : pulse.getWojewodztwo();
 
             boolean changed = !java.util.Objects.equals(district, pulse.getDistrict())
-                    || !java.util.Objects.equals(street, pulse.getStreet())
-                    || !java.util.Objects.equals(city, pulse.getCity())
-                    || !java.util.Objects.equals(address, pulse.getAddress());
+                    || !java.util.Objects.equals(street,   pulse.getStreet())
+                    || !java.util.Objects.equals(city,     pulse.getCity())
+                    || !java.util.Objects.equals(address,  pulse.getAddress())
+                    || !java.util.Objects.equals(gmina,    pulse.getGmina())
+                    || !java.util.Objects.equals(powiat,   pulse.getPowiat())
+                    || !java.util.Objects.equals(woj,      pulse.getWojewodztwo());
 
             if (changed) {
-                pulseFeedJdbcRepository.updateLocation(pulseId, district, street, city, address);
-                log.info("Enriched pulse {} with district='{}', street='{}'", pulseId, district, street);
+                pulseFeedJdbcRepository.updateLocation(pulseId, district, street, city, address,
+                        gmina, powiat, woj);
+                log.info("Enriched pulse {} with city='{}', gmina='{}', powiat='{}', woj='{}'",
+                        pulseId, city, gmina, powiat, woj);
             }
         } catch (Exception e) {
             log.warn("enrichLocationAsync failed for pulse {}: {}", pulseId, e.getMessage());
         }
     }
 
+    private static boolean blank(String s) {
+        return s == null || s.isBlank();
+    }
+
     // ---------- READ ----------
 
     @Transactional(readOnly = true)
-    public List<Pulse> listFeed(String city, String district, String street) {
+    public List<Pulse> listFeed(String city, String district, String street,
+                                boolean isAdmin, Long userId) {
         return pulseFeedJdbcRepository.findFeed(
-                blankToNull(city), blankToNull(district), blankToNull(street));
+                blankToNull(city), blankToNull(district), blankToNull(street),
+                isAdmin, userId);
     }
 
     /** Zwraca kierunek głosu użytkownika dla pulse'a (null, jeśli nie głosował). */
@@ -258,9 +270,11 @@ public class PulseService {
 
     @Transactional(readOnly = true)
     public Page<Pulse> listForAdmin(PulseStatus status, PulseCategory category, PulsePriority priority,
-                                    int page, int size) {
+                                    int page, int size,
+                                    String scopeColumn, String scopeValue) {
         var pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
-        return pulseFeedJdbcRepository.findForAdmin(status, category, priority, pageable);
+        return pulseFeedJdbcRepository.findForAdmin(status, category, priority,
+                scopeColumn, scopeValue, pageable);
     }
 
     // ---------- VOTES ----------
@@ -327,6 +341,30 @@ public class PulseService {
                 pulse.score(),
                 resulting == null ? null : resulting.toApi()
         );
+    }
+
+    /**
+     * Usuwa głos użytkownika na dany pulse. Jeśli głos nie istnieje — no-op.
+     * Zwraca aktualny score po operacji.
+     */
+    @Transactional
+    public VotePulseResponse removeVote(Long userId, Long pulseId) {
+        Pulse pulse = pulseFeedJdbcRepository.findByIdWithPhotos(pulseId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Pulse not found"));
+        pulse = resolveMerged(pulse);
+        pulse = pulseFeedJdbcRepository.findByIdForUpdate(pulse.getId())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Pulse not found"));
+
+        Long primaryPulseId = pulse.getId();
+        Optional<PulseVote> existing = pulseVoteRepository.findByPulseIdAndUserId(primaryPulseId, userId);
+
+        if (existing.isPresent()) {
+            applyVoteDelta(pulse, existing.get().getDirection(), null);
+            pulseVoteRepository.delete(existing.get());
+            pulseFeedJdbcRepository.updateVoteCounters(primaryPulseId, pulse.getUpvotes(), pulse.getDownvotes());
+        }
+
+        return new VotePulseResponse(String.valueOf(primaryPulseId), pulse.score(), null);
     }
 
     private void applyVoteDelta(Pulse pulse, VoteDirection previous, VoteDirection next) {
@@ -420,6 +458,7 @@ public class PulseService {
             case RUCH -> "Zgłoszenie: ruch";
             case BEZPIECZENSTWO -> "Zgłoszenie: bezpieczeństwo";
             case ZIELEN -> "Zgłoszenie: zieleń";
+            case INCYDENTY -> "Zgłoszenie: incydent";
         };
     }
 

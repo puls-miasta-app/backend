@@ -1,6 +1,7 @@
 package com.github.PulsMiastaApp.PulsMiasta.Security.Model;
 
 import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.User;
+import com.github.PulsMiastaApp.PulsMiasta.Model.Enums.UserRole;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -19,7 +20,11 @@ public record AuthPrincipal(
         String firstName,
         String lastName,
         String role,
-        boolean emailVerified
+        boolean emailVerified,
+        String managedWojewodztwo,
+        String managedPowiat,
+        String managedGmina,
+        String managedMiasto
 ) implements UserDetails {
 
     public static AuthPrincipal from(User user) {
@@ -29,8 +34,52 @@ public record AuthPrincipal(
                 user.getFirstName(),
                 user.getLastName(),
                 user.getRole(),
-                user.isEmailVerified()
+                user.isEmailVerified(),
+                user.getManagedWojewodztwo(),
+                user.getManagedPowiat(),
+                user.getManagedGmina(),
+                user.getManagedMiasto()
         );
+    }
+
+    public boolean isAdmin() {
+        return role != null && !role.equals("USER");
+    }
+
+    public UserRole userRole() {
+        try {
+            return UserRole.valueOf(role);
+        } catch (IllegalArgumentException | NullPointerException e) {
+            return UserRole.USER;
+        }
+    }
+
+    /**
+     * Kolumna w tabeli pulses odpowiadająca poziomowi admina.
+     * null = brak filtra (SUPER_ADMIN lub USER).
+     */
+    public String adminScopeColumn() {
+        return switch (userRole()) {
+            case ADMIN_MIASTA      -> "city";
+            case ADMIN_GMINY       -> "gmina";
+            case ADMIN_POWIATU     -> "powiat";
+            case ADMIN_WOJEWODZTWA -> "wojewodztwo";
+            default                -> null;
+        };
+    }
+
+    /**
+     * Wartość do filtrowania (znormalizowana — musi pasować do wartości w pulses).
+     * null = brak filtra.
+     */
+    public String adminScopeValue() {
+        return switch (userRole()) {
+            case ADMIN_MIASTA      -> managedMiasto;
+            case ADMIN_GMINY       -> managedGmina;
+            case ADMIN_POWIATU     -> managedPowiat;
+            case ADMIN_WOJEWODZTWA -> managedWojewodztwo;
+            default                -> null;
+        };
     }
 
     @Override

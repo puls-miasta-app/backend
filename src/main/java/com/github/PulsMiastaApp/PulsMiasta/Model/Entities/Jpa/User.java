@@ -89,6 +89,10 @@ public class User {
     @Column(name = "managed_miasto", length = 100)
     private String managedMiasto;
 
+    /** Gdy true — użytkownik musi zmienić hasło przy najbliższym logowaniu (ustawiane przez admina). */
+    @Column(name = "must_change_password", nullable = false)
+    private boolean mustChangePassword = false;
+
     /**
      * Ensures a webauthnUserHandle is assigned. Call before any WebAuthn ceremony.
      * Idempotent — safe to call multiple times.

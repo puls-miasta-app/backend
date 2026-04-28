@@ -176,7 +176,7 @@ public class SudoOtpService {
         MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
         helper.setFrom(mailFrom);
         helper.setTo(to);
-        helper.setSubject("Kod weryfikacyjny sudo — PulsMiasta");
+        helper.setSubject("Kod weryfikacyjny — PulsMiasta");
         helper.setText(html, true);
 
         mailSender.send(message);
