@@ -18,7 +18,7 @@ public sealed interface LoginResult {
     /**
      * Login completed — session (and optionally remember-me) tokens are ready.
      */
-    record SessionGranted(String sessionToken, String rememberMeToken) implements LoginResult {
+    record SessionGranted(String sessionToken, String rememberMeToken, boolean mustChangePassword) implements LoginResult {
     }
 
     /**

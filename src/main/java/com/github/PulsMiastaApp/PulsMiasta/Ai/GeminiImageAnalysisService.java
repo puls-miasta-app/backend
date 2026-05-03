@@ -18,6 +18,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.net.http.HttpClient;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -51,7 +52,7 @@ public class GeminiImageAnalysisService {
                 zaniedbane parki, śmieci w parkach/na zieleńcach, podtopienia, dzikie wysypiska w lasach).
 
             Na podstawie zdjęcia zwróć JSON o polach:
-            - category: najlepiej pasująca kategoria (RUCH, BEZPIECZENSTWO, ZIELEN)
+            - category: najlepiej pasująca kategoria główna (RUCH, BEZPIECZENSTWO, ZIELEN)
             - priority: PILNE lub STANDARD; PILNE = natychmiastowe zagrożenie dla zdrowia/bezpieczeństwa
             - title: bardzo krótki tytuł (max 8 słów) po polsku, np. "Dziura w jezdni przy skrzyżowaniu"
             - description: krótki opis problemu po polsku (max 2 zdania, bez emoji)
@@ -59,9 +60,17 @@ public class GeminiImageAnalysisService {
             - imageHint: krótki opis zawartości zdjęcia (max 6 słów, np. "Dziura w asfalcie, krawężnik")
             - heat: jedno z: "Wysokie", "Średnie", "Niskie" — oszacowana skala zasięgu/ważności problemu
             - confidence: liczba 0..1 określająca pewność, że zdjęcie faktycznie pokazuje problem miejski
+            - additionalThreats: tablica dodatkowych zagrożeń widocznych na TYM SAMYM zdjęciu,
+              ale należących do INNEJ kategorii niż główna (category). Każdy element zawiera:
+              category, priority, title, description, aiNote, imageHint, heat — analogicznie jak wyżej.
+              Tablica powinna być pusta [], jeżeli wszystkie widoczne problemy należą do tej samej kategorii.
+              Maksymalnie 2 elementy. NIE powtarzaj tej samej kategorii co category ani między elementami.
+
+            Przykład: zdjęcie pokazuje jednocześnie dziurę w jezdni (RUCH) i zniszczoną latarnię
+            (BEZPIECZENSTWO) → category=RUCH, additionalThreats=[{category=BEZPIECZENSTWO,...}].
 
             Jeżeli zdjęcie nie przedstawia problemu miejskiego, ustaw category=RUCH (fallback),
-            priority=STANDARD, confidence bliskie 0 i w description krótko wyjaśnij, czego brakuje.
+            priority=STANDARD, confidence bliskie 0, additionalThreats=[] i w description krótko wyjaśnij.
             """;
 
     private final GeminiProperties properties;
@@ -194,6 +203,21 @@ public class GeminiImageAnalysisService {
                 .map(Enum::name).toList();
         List<String> heatValues = List.of("Wysokie", "Średnie", "Niskie");
 
+        Map<String, Object> threatProps = new LinkedHashMap<>();
+        threatProps.put("category", Map.of("type", "STRING", "enum", categories));
+        threatProps.put("priority", Map.of("type", "STRING", "enum", priorities));
+        threatProps.put("title", Map.of("type", "STRING"));
+        threatProps.put("description", Map.of("type", "STRING"));
+        threatProps.put("aiNote", Map.of("type", "STRING"));
+        threatProps.put("imageHint", Map.of("type", "STRING"));
+        threatProps.put("heat", Map.of("type", "STRING", "enum", heatValues));
+
+        Map<String, Object> threatSchema = new LinkedHashMap<>();
+        threatSchema.put("type", "OBJECT");
+        threatSchema.put("properties", threatProps);
+        threatSchema.put("required", List.of("category", "priority", "title", "description",
+                "aiNote", "imageHint", "heat"));
+
         Map<String, Object> schemaFields = new LinkedHashMap<>();
         schemaFields.put("category", Map.of("type", "STRING", "enum", categories));
         schemaFields.put("priority", Map.of("type", "STRING", "enum", priorities));
@@ -203,43 +227,20 @@ public class GeminiImageAnalysisService {
         schemaFields.put("imageHint", Map.of("type", "STRING"));
         schemaFields.put("heat", Map.of("type", "STRING", "enum", heatValues));
         schemaFields.put("confidence", Map.of("type", "NUMBER"));
+        schemaFields.put("additionalThreats", Map.of("type", "ARRAY", "items", threatSchema));
 
         Map<String, Object> schema = new LinkedHashMap<>();
         schema.put("type", "OBJECT");
         schema.put("properties", schemaFields);
         schema.put("required", List.of("category", "priority", "title", "description",
-                "aiNote", "imageHint", "heat", "confidence"));
+                "aiNote", "imageHint", "heat", "confidence", "additionalThreats"));
         return schema;
     }
 
-    @SuppressWarnings("unchecked")
     private AiAnalysisResult parseResponse(Map<String, Object> response) {
-        if (response == null) {
-            log.warn("Empty response from Gemini");
-            return null;
-        }
-
-        List<Map<String, Object>> candidates = (List<Map<String, Object>>) response.get("candidates");
-        if (candidates == null || candidates.isEmpty()) {
-            log.warn("No candidates in Gemini response");
-            return null;
-        }
-
-        Map<String, Object> content = (Map<String, Object>) candidates.get(0).get("content");
-        if (content == null) {
-            log.warn("No content in Gemini candidate");
-            return null;
-        }
-
-        List<Map<String, Object>> parts = (List<Map<String, Object>>) content.get("parts");
-        if (parts == null || parts.isEmpty()) {
-            log.warn("No parts in Gemini candidate");
-            return null;
-        }
-
-        Object textObj = parts.get(0).get("text");
-        if (!(textObj instanceof String json) || json.isBlank()) {
-            log.warn("Missing text payload in Gemini response");
+        String json = extractText(response);
+        if (json == null) {
+            log.warn("Empty or missing text payload in Gemini response");
             return null;
         }
 
@@ -254,11 +255,126 @@ public class GeminiImageAnalysisService {
             String heat = parsed.path("heat").asString("Średnie");
             double confidence = parsed.path("confidence").asDouble(0.0);
 
-            return new AiAnalysisResult(category, priority, title, description, aiNote, imageHint, heat, confidence);
+            List<AiAnalysisResult.AdditionalThreat> additionalThreats = new ArrayList<>();
+            JsonNode threatsNode = parsed.path("additionalThreats");
+            if (threatsNode.isArray()) {
+                for (JsonNode t : threatsNode) {
+                    PulseCategory tCat = parseEnum(t.path("category").asString(null), PulseCategory.class, null);
+                    if (tCat == null || tCat == category) continue;
+                    PulsePriority tPri = parseEnum(t.path("priority").asString(null), PulsePriority.class, PulsePriority.STANDARD);
+                    additionalThreats.add(new AiAnalysisResult.AdditionalThreat(
+                            tCat, tPri,
+                            t.path("title").asString(""),
+                            t.path("description").asString(""),
+                            t.path("aiNote").asString(""),
+                            t.path("imageHint").asString(""),
+                            t.path("heat").asString("Średnie")));
+                }
+            }
+
+            return new AiAnalysisResult(category, priority, title, description, aiNote, imageHint, heat, confidence, additionalThreats);
         } catch (Exception e) {
             log.warn("Failed to parse Gemini JSON payload: {}", json, e);
             return null;
         }
+    }
+
+    /**
+     * Pyta Gemini (wyłącznie tekstowo, bez zdjęcia) czy dwa opisy zgłoszeń dotyczą
+     * tego samego fizycznego problemu. Używane przed merge'em deduplikacyjnym.
+     *
+     * <p>Zwraca {@code false} przy jakimkolwiek błędzie — bezpieczniejsze jest
+     * utworzenie nowego pulsu niż błędne scalenie różnych problemów.
+     */
+    public boolean areSameProblem(
+            String title1, String description1, String imageHint1,
+            String title2, String description2, String imageHint2) {
+
+        if (properties.getApiKey() == null || properties.getApiKey().isBlank()) {
+            return false;
+        }
+
+        String prompt = """
+                Jesteś systemem weryfikującym duplikaty zgłoszeń miejskich w Polsce.
+                Oceń, czy dwa poniższe zgłoszenia opisują TEN SAM fizyczny problem (ten sam obiekt lub uszkodzenie).
+
+                Zgłoszenie A:
+                - Tytuł: %s
+                - Opis: %s
+                - Zawartość zdjęcia: %s
+
+                Zgłoszenie B:
+                - Tytuł: %s
+                - Opis: %s
+                - Zawartość zdjęcia: %s
+
+                Zwróć JSON z polem sameProblem=true TYLKO jeśli oba zgłoszenia WYRAŹNIE dotyczą
+                identycznego obiektu lub tego samego uszkodzenia w tym samym miejscu.
+                Przy jakichkolwiek wątpliwościach zwróć sameProblem=false.
+                """.formatted(
+                blankOr(title1, "brak"), blankOr(description1, "brak"), blankOr(imageHint1, "brak"),
+                blankOr(title2, "brak"), blankOr(description2, "brak"), blankOr(imageHint2, "brak"));
+
+        Map<String, Object> schema = Map.of(
+                "type", "OBJECT",
+                "properties", Map.of("sameProblem", Map.of("type", "BOOLEAN")),
+                "required", List.of("sameProblem"));
+
+        Map<String, Object> generationConfig = new LinkedHashMap<>();
+        generationConfig.put("responseMimeType", "application/json");
+        generationConfig.put("responseSchema", schema);
+        generationConfig.put("temperature", 0.1);
+
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("contents", List.of(Map.of("parts", List.of(Map.of("text", prompt)))));
+        body.put("generationConfig", generationConfig);
+
+        for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+            try {
+                Map<String, Object> response = restClient.post()
+                        .uri("/models/{model}:generateContent?key={key}",
+                                properties.getModel(), properties.getApiKey())
+                        .body(body)
+                        .retrieve()
+                        .body(MAP_TYPE);
+
+                String json = extractText(response);
+                if (json == null) return false;
+                JsonNode parsed = objectMapper.readTree(json);
+                return parsed.path("sameProblem").asBoolean(false);
+
+            } catch (HttpClientErrorException e) {
+                if (e.getStatusCode().value() != 429 || attempt == MAX_ATTEMPTS) {
+                    log.warn("areSameProblem: Gemini error {}", e.getStatusCode());
+                    return false;
+                }
+                sleepBackoff(attempt);
+            } catch (HttpServerErrorException e) {
+                if (attempt == MAX_ATTEMPTS) { log.warn("areSameProblem: Gemini 5xx"); return false; }
+                sleepBackoff(attempt);
+            } catch (Exception e) {
+                log.warn("areSameProblem: unexpected error: {}", e.getMessage());
+                return false;
+            }
+        }
+        return false;
+    }
+
+    @SuppressWarnings("unchecked")
+    private String extractText(Map<String, Object> response) {
+        if (response == null) return null;
+        var candidates = (List<Map<String, Object>>) response.get("candidates");
+        if (candidates == null || candidates.isEmpty()) return null;
+        var content = (Map<String, Object>) candidates.get(0).get("content");
+        if (content == null) return null;
+        var parts = (List<Map<String, Object>>) content.get("parts");
+        if (parts == null || parts.isEmpty()) return null;
+        Object text = parts.get(0).get("text");
+        return text instanceof String s && !s.isBlank() ? s : null;
+    }
+
+    private static String blankOr(String value, String fallback) {
+        return (value == null || value.isBlank()) ? fallback : value;
     }
 
     private <E extends Enum<E>> E parseEnum(String value, Class<E> type, E fallback) {

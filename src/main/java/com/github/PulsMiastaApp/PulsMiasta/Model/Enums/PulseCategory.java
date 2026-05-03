@@ -6,18 +6,25 @@ package com.github.PulsMiastaApp.PulsMiasta.Model.Enums;
  * (pola w {@code PulseResponse.category} — patrz mobile: "Ruch", "Bezpieczeństwo", "Zieleń").
  */
 public enum PulseCategory {
-    RUCH("Ruch"),
-    BEZPIECZENSTWO("Bezpieczeństwo"),
-    ZIELEN("Zieleń");
+    RUCH("Ruch", false),
+    BEZPIECZENSTWO("Bezpieczeństwo", false),
+    ZIELEN("Zieleń", false),
+    INCYDENTY("Incydenty", true);
 
     private final String label;
+    private final boolean adminOnly;
 
-    PulseCategory(String label) {
+    PulseCategory(String label, boolean adminOnly) {
         this.label = label;
+        this.adminOnly = adminOnly;
     }
 
     public String label() {
         return label;
+    }
+
+    public boolean isAdminOnly() {
+        return adminOnly;
     }
 
     /** Parse the polish label used in API payloads back into the enum. Case-insensitive, diacritic-tolerant. */

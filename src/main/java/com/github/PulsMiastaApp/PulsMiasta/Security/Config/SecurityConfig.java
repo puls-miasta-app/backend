@@ -53,6 +53,9 @@ public class SecurityConfig {
                                 "/swagger-ui.html",
                                 "/swagger-ui/**",
                                 "/v3/api-docs/**").permitAll()
+                        // Android Digital Asset Links — fetched unauthenticated by
+                        // Google's verification servers for Credential Manager / passkeys.
+                        .requestMatchers("/.well-known/assetlinks.json").permitAll()
                         // Standard auth (PESEL + password) + login 2FA steps
                         .requestMatchers("/v1/auth/register", "/v1/auth/login", "/v1/auth/logout",
                                 "/v1/auth/verify-email",
@@ -69,9 +72,13 @@ public class SecurityConfig {
                                 "/v1/auth/passkey/credentials/**").authenticated()
                         // Sudo mode — check status, begin/finish verification (needs session)
                         .requestMatchers("/v1/auth/sudo/**").authenticated()
+                        .requestMatchers("/v1/map/**").permitAll()
                         .requestMatchers("/v1/test/**").permitAll()
-                        // Official / urzędnik endpoints — only users with ROLE_ADMIN
-                        .requestMatchers("/v1/admin/**").hasRole("ADMIN")
+                        // Urzędnik/admin endpoints — dostęp dla wszystkich ról adminów
+                        .requestMatchers("/v1/admin/**").hasAnyRole(
+                                "SUPER_ADMIN", "ADMIN_WOJEWODZTWA", "ADMIN_POWIATU",
+                                "ADMIN_GMINY", "ADMIN_MIASTA"
+                        )
                         .anyRequest().authenticated()
                 )
                 .addFilterBefore(authTokenFilter, UsernamePasswordAuthenticationFilter.class)

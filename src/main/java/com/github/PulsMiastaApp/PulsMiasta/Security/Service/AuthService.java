@@ -98,7 +98,8 @@ public class AuthService {
         // 2FA flow (login/totp, login/otp/verify, login/passkey/finish) zostaje dostępny
         // dla klientów, które chcą go użyć jawnie — patrz AuthController.
         AuthResult result = buildAuthResult(user.getId(), request.rememberMe(), request.clientType());
-        return new LoginResult.SessionGranted(result.sessionToken(), result.rememberMeToken());
+        return new LoginResult.SessionGranted(result.sessionToken(), result.rememberMeToken(),
+                user.isMustChangePassword());
     }
 
     /**
@@ -117,6 +118,29 @@ public class AuthService {
     public User findById(Long userId) {
         return userRepository.findById(userId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User not found"));
+    }
+
+    /**
+     * Zmienia hasło użytkownika.
+     * Gdy mustChangePassword=true — currentPassword nie jest wymagane (user właśnie się zalogował).
+     * Gdy mustChangePassword=false — currentPassword jest wymagane do weryfikacji.
+     */
+    public void changePassword(Long userId, String currentPassword, String newPassword) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User not found"));
+
+        if (!user.isMustChangePassword()) {
+            if (currentPassword == null || currentPassword.isBlank()) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "currentPassword is required");
+            }
+            if (!passwordEncoder.matches(currentPassword, user.getPasswordHash())) {
+                throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid current password");
+            }
+        }
+
+        user.setPasswordHash(passwordEncoder.encode(newPassword));
+        user.setMustChangePassword(false);
+        userRepository.save(user);
     }
 
     public void logout(String sessionToken, String rememberMeToken) {

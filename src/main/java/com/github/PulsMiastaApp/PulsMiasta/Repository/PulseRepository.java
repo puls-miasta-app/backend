@@ -30,58 +30,38 @@ public interface PulseRepository extends JpaRepository<Pulse, Long> {
     @Query("select p from Pulse p where p.id = :id")
     Optional<Pulse> findByIdForUpdate(@Param("id") Long id);
 
-    // --- Feed z filtrem district/street (4 warianty, żeby uniknąć "(:p is null or ...)"
-    //     który sprawia problemy z MySQL JDBC) ---
+    // Feed (listFeed) i "visible to user" (listForUser) są zaimplementowane przez
+    // PulseFeedJdbcRepository — JPA/@EntityGraph z LEFT JOIN na pulse_photos wali
+    // SQLState S1009 (Hibernate 7 + MySQL Connector/J). Patrz też AreaDictionaryController.
 
-    @EntityGraph(attributePaths = "photos")
-    @Query("""
-            select p from Pulse p
-            where p.mergedIntoPulseId is null
-            order by p.createdAt desc
-            """)
-    List<Pulse> findFeedAll();
+    long countByUserId(Long userId);
 
-    @EntityGraph(attributePaths = "photos")
-    @Query("""
-            select p from Pulse p
-            where p.mergedIntoPulseId is null
-              and p.district = :district
-            order by p.createdAt desc
-            """)
-    List<Pulse> findFeedByDistrict(@Param("district") String district);
+    java.util.List<Pulse> findAllByUserIdOrderByCreatedAtDesc(Long userId);
 
-    @EntityGraph(attributePaths = "photos")
+    /**
+     * Aggregate stats dla profilu użytkownika — pozwala uniknąć ładowania
+     * wszystkich pulse'ów do pamięci tylko po to, żeby zsumować liczniki
+     * (patrz UserProfileService).
+     */
     @Query("""
-            select p from Pulse p
-            where p.mergedIntoPulseId is null
-              and p.street = :street
-            order by p.createdAt desc
+            select count(p) as pulsesSubmitted,
+                   coalesce(sum(p.upvotes), 0) as totalUpvotes,
+                   coalesce(sum(p.downvotes), 0) as totalDownvotes,
+                   coalesce(sum(case when p.status = com.github.PulsMiastaApp.PulsMiasta.Model.Enums.PulseStatus.RESOLVED
+                                     then 1 else 0 end), 0) as resolvedPulses
+              from Pulse p
+             where p.user.id = :userId
             """)
-    List<Pulse> findFeedByStreet(@Param("street") String street);
+    UserPulseStats aggregateStatsForUser(@Param("userId") Long userId);
 
-    @EntityGraph(attributePaths = "photos")
-    @Query("""
-            select p from Pulse p
-            where p.mergedIntoPulseId is null
-              and p.district = :district
-              and p.street = :street
-            order by p.createdAt desc
-            """)
-    List<Pulse> findFeedByDistrictAndStreet(@Param("district") String district,
-                                            @Param("street") String street);
-
-    @EntityGraph(attributePaths = "photos")
-    @Query("""
-            select distinct p from Pulse p
-            left join p.photos ph
-            where p.mergedIntoPulseId is null
-              and (p.user.id = :userId or ph.user.id = :userId)
-            order by p.createdAt desc
-            """)
-    List<Pulse> findAllVisibleToUser(@Param("userId") Long userId);
+    interface UserPulseStats {
+        long getPulsesSubmitted();
+        long getTotalUpvotes();
+        long getTotalDownvotes();
+        long getResolvedPulses();
+    }
 
     /** Deduplikacja — szukamy OPEN pulses tej samej kategorii w bounding boxie. */
-    @EntityGraph(attributePaths = "photos")
     @Query("""
             select p from Pulse p
             where p.id <> :excludeId

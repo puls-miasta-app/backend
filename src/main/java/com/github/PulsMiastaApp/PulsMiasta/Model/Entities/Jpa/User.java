@@ -73,6 +73,26 @@ public class User {
     @Column(name = "email_otp_enabled", nullable = false)
     private boolean emailOtpEnabled = true;
 
+    /** Województwo zarządzane przez admina (null dla USER i SUPER_ADMIN). */
+    @Column(name = "managed_wojewodztwo", length = 100)
+    private String managedWojewodztwo;
+
+    /** Powiat zarządzany przez admina (wymagany dla ADMIN_POWIATU i niżej). */
+    @Column(name = "managed_powiat", length = 100)
+    private String managedPowiat;
+
+    /** Gmina zarządzana przez admina (wymagana dla ADMIN_GMINY i niżej). */
+    @Column(name = "managed_gmina", length = 100)
+    private String managedGmina;
+
+    /** Miasto zarządzane przez admina (wymagane dla ADMIN_MIASTA). */
+    @Column(name = "managed_miasto", length = 100)
+    private String managedMiasto;
+
+    /** Gdy true — użytkownik musi zmienić hasło przy najbliższym logowaniu (ustawiane przez admina). */
+    @Column(name = "must_change_password", nullable = false)
+    private boolean mustChangePassword = false;
+
     /**
      * Ensures a webauthnUserHandle is assigned. Call before any WebAuthn ceremony.
      * Idempotent — safe to call multiple times.

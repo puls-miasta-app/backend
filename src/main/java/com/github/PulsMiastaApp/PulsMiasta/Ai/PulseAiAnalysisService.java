@@ -2,10 +2,9 @@ package com.github.PulsMiastaApp.PulsMiasta.Ai;
 
 import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.Pulse;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.PulsePhoto;
-import com.github.PulsMiastaApp.PulsMiasta.Model.Enums.PulseCategory;
+import com.github.PulsMiastaApp.PulsMiasta.Model.Enums.PulsePriority;
+import com.github.PulsMiastaApp.PulsMiasta.Repository.PulseFeedJdbcRepository;
 import com.github.PulsMiastaApp.PulsMiasta.Repository.PulsePhotoRepository;
-import com.github.PulsMiastaApp.PulsMiasta.Repository.PulseRepository;
-import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
@@ -18,9 +17,9 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Fire-and-forget AI image analysis + dedup dla pulses. Analogicznie do poprzedniego
- * ReportAiAnalysisService — caller persistuje pulse pierwszy, a ten serwis dopisuje
- * pola AI i opcjonalnie mergeuje duplikaty.
+ * Fire-and-forget AI image analysis + dedup dla pulses.
+ * Wszystkie operacje na tabeli pulses używają JDBC żeby ominąć bug
+ * Hibernate 7 + MySQL Connector/J (SQLState S1009).
  */
 @Slf4j
 @Service
@@ -32,9 +31,8 @@ public class PulseAiAnalysisService {
 
     private final GeminiImageAnalysisService geminiImageAnalysisService;
     private final GeminiProperties geminiProperties;
-    private final PulseRepository pulseRepository;
+    private final PulseFeedJdbcRepository pulseFeedJdbcRepository;
     private final PulsePhotoRepository pulsePhotoRepository;
-    private final EntityManager entityManager;
 
     @Async("photoUploadExecutor")
     @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -47,7 +45,7 @@ public class PulseAiAnalysisService {
                 return;
             }
 
-            Pulse pulse = pulseRepository.findById(pulseId).orElse(null);
+            Pulse pulse = pulseFeedJdbcRepository.findByIdWithPhotos(pulseId).orElse(null);
             if (pulse == null) {
                 log.warn("Pulse {} not found when writing back AI analysis", pulseId);
                 return;
@@ -61,41 +59,131 @@ public class PulseAiAnalysisService {
 
             double threshold = geminiProperties.getMinConfidence();
             if (result.confidence() < threshold) {
-                log.info("Pulse {}: AI confidence {} below threshold {}, leaving fields empty for manual review",
+                log.info("Pulse {}: AI confidence {} below threshold {}, saving imageHint only",
                         pulseId, result.confidence(), threshold);
+                String imageHint = result.imageHint() != null && !result.imageHint().isBlank()
+                        ? result.imageHint() : null;
+                pulseFeedJdbcRepository.updateAiNoteAndImageHint(pulseId,
+                        "Automatyczna analiza zdjęcia nie była możliwa. Zgłoszenie wymaga ręcznej weryfikacji.",
+                        imageHint);
                 return;
             }
 
-            Optional<Pulse> primary = findDuplicate(pulse, result.category());
+            Optional<Pulse> primary = findDuplicate(pulse, result);
             if (primary.isPresent()) {
                 mergeInto(pulse, primary.get());
                 return;
             }
 
-            pulse.setCategory(result.category());
-            pulse.setPriority(result.priority());
-            if (result.title() != null && !result.title().isBlank()) {
-                pulse.setTitle(result.title());
-            }
-            if (result.description() != null && !result.description().isBlank()) {
-                pulse.setDescription(result.description());
-            }
-            pulse.setAiNote(result.aiNote());
-            pulse.setImageHint(result.imageHint());
-            pulse.setHeat(result.heat());
-            pulseRepository.save(pulse);
+            String title = (result.title() != null && !result.title().isBlank())
+                    ? result.title() : pulse.getTitle();
+            String description = (result.description() != null && !result.description().isBlank())
+                    ? result.description() : pulse.getDescription();
+
+            pulseFeedJdbcRepository.updateAiFields(
+                    pulseId,
+                    result.category() != null ? result.category().name() : null,
+                    result.priority() != null ? result.priority().name() : null,
+                    title,
+                    description,
+                    result.aiNote(),
+                    result.imageHint(),
+                    result.heat());
 
             log.info("AI analysis saved for pulse {}: category={}, priority={}, confidence={}",
                     pulseId, result.category(), result.priority(), result.confidence());
+
+            for (AiAnalysisResult.AdditionalThreat threat : result.additionalThreats()) {
+                try {
+                    createSplitPulse(pulse, threat);
+                } catch (Exception e) {
+                    log.error("Failed to create split pulse for threat {} from pulse {}: {}",
+                            threat.category(), pulseId, e.getMessage(), e);
+                }
+            }
         } catch (Exception e) {
             log.error("Async AI analysis failed for pulse {}: {}", pulseId, e.getMessage(), e);
         }
     }
 
+    // ---------- split pulses ----------
+
+    /**
+     * Tworzy osobny puls dla dodatkowego zagrożenia wykrytego na tym samym zdjęciu.
+     * Jeżeli istnieje już podobne zgłoszenie w pobliżu tej samej kategorii, dołącza
+     * do niego referencję do zdjęcia zamiast tworzyć duplikat.
+     */
+    private void createSplitPulse(Pulse sourcePulse, AiAnalysisResult.AdditionalThreat threat) {
+        if (threat.category() == null) return;
+        Long userId = sourcePulse.getUser() != null ? sourcePulse.getUser().getId() : null;
+        if (userId == null) return;
+
+        String category = threat.category().name();
+        String priority = threat.priority() != null ? threat.priority().name() : PulsePriority.STANDARD.name();
+
+        String titleVal = threat.title() != null && !threat.title().isBlank()
+                ? threat.title() : defaultTitleFor(threat.category());
+
+        Optional<Pulse> duplicate = findDuplicate(sourcePulse, category, titleVal, threat.description(), threat.imageHint());
+        if (duplicate.isPresent()) {
+            log.info("Split threat {} from pulse {} matched duplicate {}, attaching photo only",
+                    category, sourcePulse.getId(), duplicate.get().getId());
+            attachPhotoToPulse(sourcePulse, duplicate.get().getId(), userId);
+            return;
+        }
+        String descVal = threat.description() != null && !threat.description().isBlank()
+                ? threat.description() : sourcePulse.getDescription();
+
+        Long newPulseId = pulseFeedJdbcRepository.insertPulse(
+                userId, category, priority,
+                titleVal, descVal,
+                threat.aiNote(), threat.imageHint(), threat.heat(),
+                sourcePulse.getLatitude(), sourcePulse.getLongitude(),
+                sourcePulse.getAddress(), sourcePulse.getDistrict(), sourcePulse.getStreet(), sourcePulse.getCity(),
+                sourcePulse.getGmina(), sourcePulse.getPowiat(), sourcePulse.getWojewodztwo());
+
+        attachPhotoToPulse(sourcePulse, newPulseId, userId);
+
+        log.info("Created split pulse {} (category={}) from source pulse {}",
+                newPulseId, category, sourcePulse.getId());
+    }
+
+    private void attachPhotoToPulse(Pulse sourcePulse, Long targetPulseId, Long userId) {
+        if (sourcePulse.getPhotos().isEmpty()) return;
+        PulsePhoto photo = sourcePulse.getPhotos().get(0);
+        pulseFeedJdbcRepository.insertPulsePhoto(
+                targetPulseId, userId,
+                photo.getObjectKey(),
+                photo.getOriginalFilename(),
+                photo.getContentType(),
+                photo.getFileSize());
+    }
+
+    private static String defaultTitleFor(com.github.PulsMiastaApp.PulsMiasta.Model.Enums.PulseCategory category) {
+        return switch (category) {
+            case RUCH -> "Zgłoszenie: ruch";
+            case BEZPIECZENSTWO -> "Zgłoszenie: bezpieczeństwo";
+            case ZIELEN -> "Zgłoszenie: zieleń";
+            case INCYDENTY -> "Zgłoszenie: incydent";
+        };
+    }
+
     // ---------- dedup / merge ----------
 
-    private Optional<Pulse> findDuplicate(Pulse pulse, PulseCategory category) {
-        if (pulse.getLatitude() == null || pulse.getLongitude() == null) {
+    private Optional<Pulse> findDuplicate(Pulse pulse, AiAnalysisResult result) {
+        String category = result.category() != null ? result.category().name() : null;
+        return findDuplicate(pulse, category, result.title(), result.description(), result.imageHint());
+    }
+
+    /**
+     * Szuka kandydata do merge'u: ta sama kategoria, w promieniu {@value DEDUP_RADIUS_METERS}m,
+     * ostatnie {@value DEDUP_WINDOW_DAYS} dni. Dla każdego kandydata pyta Gemini (tekst)
+     * czy oba opisy dotyczą tego samego fizycznego problemu — merge następuje tylko po
+     * potwierdzeniu. Błąd API → bezpiecznie zwraca brak duplikatu.
+     */
+    private Optional<Pulse> findDuplicate(Pulse pulse, String category,
+                                           String title, String description, String imageHint) {
+        if (pulse.getLatitude() == null || pulse.getLongitude() == null || category == null) {
             return Optional.empty();
         }
         double lat = pulse.getLatitude();
@@ -106,7 +194,7 @@ public class PulseAiAnalysisService {
 
         LocalDateTime since = LocalDateTime.now().minusDays(DEDUP_WINDOW_DAYS);
 
-        List<Pulse> candidates = pulseRepository.findDuplicateCandidates(
+        List<Pulse> candidates = pulseFeedJdbcRepository.findDuplicateCandidates(
                 pulse.getId(),
                 category,
                 lat - latDelta, lat + latDelta,
@@ -116,7 +204,27 @@ public class PulseAiAnalysisService {
         return candidates.stream()
                 .filter(c -> c.getLatitude() != null && c.getLongitude() != null)
                 .filter(c -> haversineMeters(lat, lng, c.getLatitude(), c.getLongitude()) <= DEDUP_RADIUS_METERS)
+                .filter(c -> isSameProblem(title, description, imageHint, c))
                 .findFirst();
+    }
+
+    private boolean isSameProblem(String newTitle, String newDesc, String newHint, Pulse existing) {
+        boolean existingHasAiData = !isBlank(existing.getImageHint())
+                || !isBlank(existing.getTitle())
+                || !isBlank(existing.getDescription());
+        if (!existingHasAiData) {
+            log.debug("Candidate pulse {} has no AI data yet — skipping merge", existing.getId());
+            return false;
+        }
+        boolean same = geminiImageAnalysisService.areSameProblem(
+                newTitle, newDesc, newHint,
+                existing.getTitle(), existing.getDescription(), existing.getImageHint());
+        log.debug("Gemini same-problem check vs pulse {}: {}", existing.getId(), same);
+        return same;
+    }
+
+    private static boolean isBlank(String s) {
+        return s == null || s.isBlank();
     }
 
     private void mergeInto(Pulse source, Pulse primary) {
@@ -128,15 +236,12 @@ public class PulseAiAnalysisService {
         for (PulsePhoto photo : movedPhotos) {
             photo.setPulse(primary);
         }
-        pulsePhotoRepository.saveAll(movedPhotos);
-        entityManager.flush();
+        if (!movedPhotos.isEmpty()) {
+            pulsePhotoRepository.saveAll(movedPhotos);
+        }
 
-        primary.getPhotos().addAll(movedPhotos);
-        primary.setDuplicateCount(primary.getDuplicateCount() + 1);
-
-        source.setMergedIntoPulseId(primary.getId());
-
-        pulseRepository.saveAll(List.of(primary, source));
+        pulseFeedJdbcRepository.incrementDuplicateCount(primary.getId());
+        pulseFeedJdbcRepository.markMerged(source.getId(), primary.getId());
     }
 
     private static double haversineMeters(double lat1, double lng1, double lat2, double lng2) {

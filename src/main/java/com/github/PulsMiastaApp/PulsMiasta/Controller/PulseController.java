@@ -18,6 +18,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -55,13 +56,19 @@ public class PulseController {
 
     @GetMapping
     public ResponseEntity<SuccessResponse<Map<String, List<PulseResponse>>>> listFeed(
+            @RequestParam(value = "city", required = false) String city,
             @RequestParam(value = "district", required = false) String district,
             @RequestParam(value = "street", required = false) String street,
             @AuthenticationPrincipal AuthPrincipal principal
     ) {
         requireAuthenticated(principal);
-        List<Pulse> pulses = pulseService.listFeed(district, street);
-        List<PulseResponse> items = pulses.stream().map(PulseMapper::toResponse).toList();
+        List<Pulse> pulses = pulseService.listFeed(city, district, street,
+                principal.isAdmin(), principal.id());
+        var pulseIds = pulses.stream().map(Pulse::getId).toList();
+        var votes = pulseService.getUserVotes(pulseIds, principal.id());
+        List<PulseResponse> items = pulses.stream()
+                .map(p -> PulseMapper.toResponse(p, votes.get(p.getId())))
+                .toList();
         return ResponseEntity.ok(SuccessResponse.of(Map.of("pulses", items)));
     }
 
@@ -84,7 +91,8 @@ public class PulseController {
                 body.longitude(),
                 body.address(),
                 body.district(),
-                body.street()
+                body.street(),
+                body.city()
         );
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(SuccessResponse.of(Map.of("pulse", PulseMapper.toResponse(pulse))));
@@ -102,6 +110,7 @@ public class PulseController {
             @RequestParam(value = "address", required = false) String address,
             @RequestParam(value = "district", required = false) String district,
             @RequestParam(value = "street", required = false) String street,
+            @RequestParam(value = "city", required = false) String city,
             @AuthenticationPrincipal AuthPrincipal principal
     ) {
         requireEmailVerified(principal);
@@ -117,7 +126,8 @@ public class PulseController {
                 longitude,
                 address,
                 district,
-                street
+                street,
+                city
         );
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(SuccessResponse.of(Map.of("pulse", PulseMapper.toResponse(pulse))));
@@ -153,6 +163,16 @@ public class PulseController {
         return ResponseEntity.ok(SuccessResponse.of(response));
     }
 
+    @DeleteMapping(path = "/vote/{pulseId}")
+    public ResponseEntity<SuccessResponse<VotePulseResponse>> removeVote(
+            @PathVariable("pulseId") Long pulseId,
+            @AuthenticationPrincipal AuthPrincipal principal
+    ) {
+        requireAuthenticated(principal);
+        VotePulseResponse response = pulseService.removeVote(principal.id(), pulseId);
+        return ResponseEntity.ok(SuccessResponse.of(response));
+    }
+
     // ---------- ME / DETAILS ----------
 
     @GetMapping("/me")
@@ -161,8 +181,10 @@ public class PulseController {
     ) {
         requireAuthenticated(principal);
         List<Pulse> pulses = pulseService.listForUser(principal.id());
+        var ids = pulses.stream().map(Pulse::getId).toList();
+        var votes = pulseService.getUserVotes(ids, principal.id());
         return ResponseEntity.ok(SuccessResponse.of(
-                pulses.stream().map(PulseMapper::toResponse).toList()));
+                pulses.stream().map(p -> PulseMapper.toResponse(p, votes.get(p.getId()))).toList()));
     }
 
     @GetMapping("/{id}")
@@ -171,8 +193,9 @@ public class PulseController {
             @AuthenticationPrincipal AuthPrincipal principal
     ) {
         requireAuthenticated(principal);
-        Pulse pulse = pulseService.getForUser(id, principal.id());
-        return ResponseEntity.ok(SuccessResponse.of(PulseMapper.toResponse(pulse)));
+        Pulse pulse = pulseService.getAny(id);
+        var userVote = pulseService.getUserVote(pulse.getId(), principal.id());
+        return ResponseEntity.ok(SuccessResponse.of(PulseMapper.toResponse(pulse, userVote)));
     }
 
     // ---------- PHOTO STREAM ----------

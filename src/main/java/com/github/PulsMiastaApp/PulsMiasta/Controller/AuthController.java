@@ -136,7 +136,8 @@ public class AuthController {
                         new AuthResult(granted.sessionToken(), granted.rememberMeToken()),
                         request.rememberMe(), request.clientType() == ClientType.MOBILE,
                         sessionTtlMinutes, rememberMeWebDays, rememberMeMobileDays);
-                yield ResponseEntity.ok(SuccessResponse.of("Logged in successfully"));
+                yield ResponseEntity.ok(SuccessResponse.of(
+                        new LoginSuccessResponse(granted.mustChangePassword())));
             }
             case LoginResult.TwoFactorRequired pending -> ResponseEntity.status(HttpStatus.ACCEPTED)
                     .body(SuccessResponse.of(new TwoFactorRequiredResponse(
@@ -311,6 +312,29 @@ public class AuthController {
         SecurityContextHolder.clearContext();
 
         return ResponseEntity.ok(SuccessResponse.of("Logged out successfully"));
+    }
+
+    // =========================================================================
+    // Change password
+    // =========================================================================
+
+    /**
+     * Zmiana hasła.
+     * - Gdy konto ma mustChangePassword=true (ustawione przez admina): currentPassword nie jest wymagane.
+     * - W pozostałych przypadkach: currentPassword jest wymagane.
+     */
+    @PostMapping("/change-password")
+    public ResponseEntity<SuccessResponse<String>> changePassword(
+            @RequestBody ChangePasswordRequest request,
+            @AuthenticationPrincipal AuthPrincipal principal) {
+        if (principal == null) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication required");
+        }
+        if (request.newPassword() == null || request.newPassword().length() < 8) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "newPassword must be at least 8 characters");
+        }
+        authService.changePassword(principal.id(), request.currentPassword(), request.newPassword());
+        return ResponseEntity.ok(SuccessResponse.of("Password changed successfully"));
     }
 
     // =========================================================================
@@ -533,8 +557,17 @@ public class AuthController {
 
     @Schema(name = "LoginSuccessResponse")
     private static class LoginSuccessResponse extends SuccessResponse<String> {
+        @lombok.Getter
+        private final boolean mustChangePassword;
+
         public LoginSuccessResponse() {
             super(true, "Logged in successfully");
+            this.mustChangePassword = false;
+        }
+
+        public LoginSuccessResponse(boolean mustChangePassword) {
+            super(true, "Logged in successfully");
+            this.mustChangePassword = mustChangePassword;
         }
     }
 

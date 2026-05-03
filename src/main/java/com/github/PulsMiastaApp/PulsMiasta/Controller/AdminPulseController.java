@@ -7,6 +7,7 @@ import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.Pulse;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Enums.PulseCategory;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Enums.PulsePriority;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Enums.PulseStatus;
+import com.github.PulsMiastaApp.PulsMiasta.Security.Model.AuthPrincipal;
 import com.github.PulsMiastaApp.PulsMiasta.Service.PulseService;
 import com.github.PulsMiastaApp.PulsMiasta.Storage.PhotoStorageService;
 import lombok.RequiredArgsConstructor;
@@ -14,6 +15,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -47,13 +49,16 @@ public class AdminPulseController {
             @RequestParam(value = "category", required = false) String category,
             @RequestParam(value = "priority", required = false) String priority,
             @RequestParam(value = "page", defaultValue = "0") int page,
-            @RequestParam(value = "size", defaultValue = "20") int size
+            @RequestParam(value = "size", defaultValue = "20") int size,
+            @AuthenticationPrincipal AuthPrincipal principal
     ) {
+        requireAdmin(principal);
         Page<Pulse> pulses = pulseService.listForAdmin(
                 parseEnum(status, PulseStatus.class, "status"),
                 parseEnum(category, PulseCategory.class, "category"),
                 parseEnum(priority, PulsePriority.class, "priority"),
-                page, size);
+                page, size,
+                principal.adminScopeColumn(), principal.adminScopeValue());
 
         List<PulseResponse> items = pulses.getContent().stream()
                 .map(PulseMapper::toResponse)
@@ -69,22 +74,36 @@ public class AdminPulseController {
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<SuccessResponse<PulseResponse>> getPulse(@PathVariable("id") Long id) {
+    public ResponseEntity<SuccessResponse<PulseResponse>> getPulse(
+            @PathVariable("id") Long id,
+            @AuthenticationPrincipal AuthPrincipal principal
+    ) {
+        requireAdmin(principal);
         Pulse pulse = pulseService.getAny(id);
+        requirePulseInScope(pulse, principal);
         return ResponseEntity.ok(SuccessResponse.of(PulseMapper.toResponse(pulse)));
     }
 
     @GetMapping("/photos/{photoId}")
     public ResponseEntity<StreamingResponseBody> getPhoto(
             @PathVariable("photoId") Long photoId,
-            @RequestHeader(value = HttpHeaders.IF_NONE_MATCH, required = false) String ifNoneMatch) {
+            @RequestHeader(value = HttpHeaders.IF_NONE_MATCH, required = false) String ifNoneMatch,
+            @AuthenticationPrincipal AuthPrincipal principal
+    ) {
+        requireAdmin(principal);
         PulseService.PhotoRef ref = pulseService.resolvePhotoForAdmin(photoId);
         return PulseController.buildPhotoResponse(photoStorageService, ref, ifNoneMatch);
     }
 
     @PatchMapping("/{id}/status")
-    public ResponseEntity<?> updateStatus(@PathVariable("id") Long id,
-                                          @RequestBody Map<String, String> body) {
+    public ResponseEntity<?> updateStatus(
+            @PathVariable("id") Long id,
+            @RequestBody Map<String, String> body,
+            @AuthenticationPrincipal AuthPrincipal principal
+    ) {
+        requireAdmin(principal);
+        Pulse existing = pulseService.getAny(id);
+        requirePulseInScope(existing, principal);
         String raw = body == null ? null : body.get("status");
         PulseStatus status = parseEnum(raw, PulseStatus.class, "status");
         if (status == null) {
@@ -93,6 +112,28 @@ public class AdminPulseController {
         }
         Pulse pulse = pulseService.updateStatus(id, status);
         return ResponseEntity.ok(SuccessResponse.of(PulseMapper.toResponse(pulse)));
+    }
+
+    private static void requireAdmin(AuthPrincipal principal) {
+        if (principal == null || !principal.isAdmin()) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Admin access required");
+        }
+    }
+
+    private static void requirePulseInScope(Pulse pulse, AuthPrincipal principal) {
+        String col = principal.adminScopeColumn();
+        if (col == null) return;
+        String adminVal = principal.adminScopeValue();
+        String pulseVal = switch (col) {
+            case "city"        -> pulse.getCity();
+            case "gmina"       -> pulse.getGmina();
+            case "powiat"      -> pulse.getPowiat();
+            case "wojewodztwo" -> pulse.getWojewodztwo();
+            default            -> null;
+        };
+        if (adminVal != null && !adminVal.equalsIgnoreCase(pulseVal)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Pulse not in your managed area");
+        }
     }
 
     private <E extends Enum<E>> E parseEnum(String raw, Class<E> type, String field) {
