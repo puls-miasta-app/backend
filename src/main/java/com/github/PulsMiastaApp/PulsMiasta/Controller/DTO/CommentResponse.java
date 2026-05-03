@@ -8,5 +8,11 @@ public record CommentResponse(
         String userFirstName,
         String userLastName,
         String body,
-        String createdAt
+        String createdAt,
+        String editedAt,
+        String parentCommentId,
+        int likesCount,
+        int replyCount,
+        boolean userLiked,
+        boolean deleted
 ) {}
