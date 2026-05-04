@@ -38,24 +38,23 @@ public class PulseCommentService {
     /** Placeholder wyświetlany zamiast treści usuniętego komentarza. */
     static final String DELETED_BODY = "[Usunięto]";
 
-    private static final int MAX_BODY_LENGTH   = 2000;
-    private static final int MAX_DESCRIPTION   = 500;
-    private static final int MAX_ADMIN_NOTE    = 1000;
+    private static final int MAX_BODY_LENGTH = 2000;
+    private static final int MAX_DESCRIPTION = 500;
+    private static final int MAX_ADMIN_NOTE  = 1000;
 
-    private final PulseCommentRepository commentRepository;
-    private final CommentLikeRepository  likeRepository;
+    private final PulseCommentRepository  commentRepository;
+    private final CommentLikeRepository   likeRepository;
     private final CommentReportRepository reportRepository;
-    private final PulseRepository        pulseRepository;
+    private final PulseRepository         pulseRepository;
     private final PulseFeedJdbcRepository pulseFeedJdbcRepository;
-    private final UserRepository         userRepository;
-    private final JdbcTemplate           jdbcTemplate;
+    private final UserRepository          userRepository;
+    private final JdbcTemplate            jdbcTemplate;
 
     // ─── Odczyt ────────────────────────────────────────────────────────────────
 
     @Transactional(readOnly = true)
     public List<CommentResponse> listTopLevel(Long pulseId, Long currentUserId) {
         ensurePulseExists(pulseId);
-        // JOIN FETCH c.user w repozytorium — brak N+1
         List<PulseComment> comments =
                 commentRepository.findAllByPulseIdAndParentCommentIsNullOrderByCreatedAtAsc(pulseId);
         Set<Long> liked = fetchLikedIds(currentUserId, comments);
@@ -64,9 +63,23 @@ public class PulseCommentService {
                 .toList();
     }
 
+    /**
+     * Odpowiedzi na komentarz.
+     * Jeśli parent jest soft-deleted — zwraca pustą listę (replies są logicznie niedostępne).
+     */
     @Transactional(readOnly = true)
-    public List<CommentResponse> listReplies(Long commentId, Long currentUserId) {
-        // JOIN FETCH c.user w repozytorium — brak N+1
+    public List<CommentResponse> listReplies(Long pulseId, Long commentId, Long currentUserId) {
+        PulseComment parent = commentRepository.findById(commentId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Comment not found"));
+
+        // Weryfikacja że komentarz należy do podanego pulsu
+        requireCommentBelongsToPulse(parent, pulseId);
+
+        // Bug #3: parent usunięty → odpowiedzi niedostępne
+        if (parent.getDeletedAt() != null) {
+            return Collections.emptyList();
+        }
+
         List<PulseComment> replies =
                 commentRepository.findAllByParentCommentIdOrderByCreatedAtAsc(commentId);
         Set<Long> liked = fetchLikedIds(currentUserId, replies);
@@ -82,7 +95,6 @@ public class PulseCommentService {
         String trimmed = validateBody(body);
         User user = requireUser(userId);
 
-        // JDBC SELECT FOR UPDATE — JPA @Lock(@PESSIMISTIC_WRITE) wali S1009 na tabeli pulses
         pulseFeedJdbcRepository.findByIdForUpdate(pulseId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Pulse not found"));
         Pulse pulseRef = pulseRepository.getReferenceById(pulseId);
@@ -95,11 +107,12 @@ public class PulseCommentService {
         if (parentCommentId != null) {
             PulseComment parent = commentRepository.findById(parentCommentId)
                     .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Parent comment not found"));
-            if (!parent.getPulse().getId().equals(pulseId)) {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Parent comment belongs to a different pulse");
-            }
+            requireCommentBelongsToPulse(parent, pulseId);
             if (parent.getParentComment() != null) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Nested replies are not supported");
+            }
+            if (parent.getDeletedAt() != null) {
+                throw new ResponseStatusException(HttpStatus.GONE, "Cannot reply to a deleted comment");
             }
             c.setParentComment(parent);
             commentRepository.incrementReplyCount(parentCommentId);
@@ -118,9 +131,12 @@ public class PulseCommentService {
     // ─── Edycja ────────────────────────────────────────────────────────────────
 
     @Transactional
-    public CommentResponse edit(Long commentId, Long userId, String body) {
+    public CommentResponse edit(Long pulseId, Long commentId, Long userId, String body) {
         String trimmed = validateBody(body);
         PulseComment c = requireCommentNotDeleted(commentId);
+
+        // Bug #2: komentarz musi należeć do podanego pulsu
+        requireCommentBelongsToPulse(c, pulseId);
 
         if (!c.getUser().getId().equals(userId)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Cannot edit another user's comment");
@@ -136,29 +152,24 @@ public class PulseCommentService {
     // ─── Usuwanie (soft-delete) ────────────────────────────────────────────────
 
     @Transactional
-    public void deleteOwn(Long commentId, Long userId) {
+    public void deleteOwn(Long pulseId, Long commentId, Long userId) {
         PulseComment c = requireCommentNotDeleted(commentId);
+
+        // Bug #2: komentarz musi należeć do podanego pulsu
+        requireCommentBelongsToPulse(c, pulseId);
+
         if (!c.getUser().getId().equals(userId)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Cannot delete another user's comment");
         }
         softDelete(c);
     }
 
-    /**
-     * Usuwa komentarz jako admin — weryfikuje scope geograficzny.
-     *
-     * @param scopeColumn null dla SUPER_ADMIN (brak filtru)
-     * @param scopeValue  wartość zakresu admina
-     */
     @Transactional
     public void deleteAsAdmin(Long commentId, String scopeColumn, String scopeValue) {
-        // Ładujemy komentarz razem z pulsem (JOIN FETCH) by sprawdzić scope
         PulseComment c = commentRepository.findByIdWithPulse(commentId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Comment not found"));
-
         requireCommentInScope(c.getPulse(), scopeColumn, scopeValue);
-
-        if (c.getDeletedAt() != null) return; // już usunięty — idempotentne
+        if (c.getDeletedAt() != null) return;
         softDelete(c);
     }
 
@@ -167,15 +178,13 @@ public class PulseCommentService {
     @Transactional
     public CommentResponse toggleLike(Long commentId, Long userId) {
         requireCommentNotDeleted(commentId);
-        requireUser(userId); // weryfikacja że użytkownik istnieje
+        requireUser(userId);
 
         /*
-         * Używamy JDBC INSERT IGNORE zamiast check-then-act przez JPA.
-         * Dzięki temu dwa równoległe żądania "like" nie mogą oba wykonać
-         * INSERT — MySQL odrzuca drugi cicho (IGNORE). Każdy request
-         * atomowo decyduje czy polubił czy odpolubił:
-         *   inserted=1 → nowy lajk     → increment
-         *   inserted=0 → już istniał   → DELETE → decrement (unlike)
+         * INSERT IGNORE zamiast check-then-act przez JPA:
+         *   inserted=1 → nowy lajk  → increment
+         *   inserted=0 → już istniał → DELETE → decrement (unlike)
+         * Dwa równoległe żądania nie mogą oba wstawić wiersza dzięki unique constraint.
          */
         int inserted = jdbcTemplate.update(
                 "INSERT IGNORE INTO comment_likes (comment_id, user_id, created_at) VALUES (?, ?, NOW())",
@@ -189,13 +198,11 @@ public class PulseCommentService {
             int deleted = jdbcTemplate.update(
                     "DELETE FROM comment_likes WHERE comment_id = ? AND user_id = ?",
                     commentId, userId);
-            if (deleted > 0) {
-                commentRepository.decrementLikes(commentId);
-            }
+            if (deleted > 0) commentRepository.decrementLikes(commentId);
             nowLiked = false;
         }
 
-        // clearAutomatically=true na @Modifying — fetch daje świeże dane
+        // clearAutomatically=true na @Modifying — findById zwraca świeże dane
         PulseComment updated = commentRepository.findById(commentId).orElseThrow();
         return toResponse(updated, nowLiked);
     }
@@ -204,7 +211,7 @@ public class PulseCommentService {
 
     @Transactional
     public void report(Long commentId, Long reporterId, String rawReason, String description) {
-        requireCommentNotDeleted(commentId);
+        PulseComment comment = requireCommentNotDeleted(commentId);
         User reporter = requireUser(reporterId);
 
         if (reportRepository.existsByCommentIdAndReporterId(commentId, reporterId)) {
@@ -228,6 +235,8 @@ public class PulseCommentService {
         report.setReporter(reporter);
         report.setReason(reason);
         report.setDescription(description != null ? description.trim() : null);
+        // Bug #1: snapshot treści — admin widzi oryginalną treść nawet po soft-delete
+        report.setOriginalBody(comment.getBody());
         reportRepository.save(report);
     }
 
@@ -237,7 +246,6 @@ public class PulseCommentService {
     public Page<CommentResponse> listForAdmin(Long pulseId, int page, int size) {
         ensurePulseExists(pulseId);
         PageRequest pageable = PageRequest.of(page, size, Sort.by("createdAt").ascending());
-        // @EntityGraph(attributePaths={"user"}) na repozytorium eliminuje N+1
         return commentRepository.findAllByPulseId(pulseId, pageable)
                 .map(c -> toResponse(c, false));
     }
@@ -249,15 +257,14 @@ public class PulseCommentService {
             String rawStatus, String scopeColumn, String scopeValue, int page, int size) {
         CommentReportStatus status = parseStatus(rawStatus);
         PageRequest pageable = PageRequest.of(page, size);
-        // JOIN FETCH reporter, reviewedBy, comment, pulse w repozytorium — brak N+1
         return reportRepository.findInScope(status, scopeColumn, scopeValue, pageable)
                 .map(PulseCommentService::toReportResponse);
     }
 
     /**
-     * Rozpatruje zgłoszenie — weryfikuje scope admina przed zapisem.
-     *
-     * @param scopeColumn null dla SUPER_ADMIN
+     * Rozpatruje zgłoszenie.
+     * Security fix: ładujemy raport razem z komentarzem i pulsem w jednym zapytaniu,
+     * weryfikujemy scope na załadowanej encji — eliminuje TOCTOU existsByIdInScope + findById.
      */
     @Transactional
     public CommentReportResponse reviewReport(Long reportId, Long adminId,
@@ -269,13 +276,12 @@ public class PulseCommentService {
                     "Admin note too long (max " + MAX_ADMIN_NOTE + " chars)");
         }
 
-        // Weryfikacja scope — admin może rozpatrywać tylko zgłoszenia w swoim zasięgu
-        if (scopeColumn != null && !reportRepository.existsByIdInScope(reportId, scopeColumn, scopeValue)) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Report not in your managed area");
-        }
-
-        CommentReport report = reportRepository.findById(reportId)
+        // JOIN FETCH comment + pulse w jednym zapytaniu → brak TOCTOU
+        CommentReport report = reportRepository.findByIdWithCommentAndPulse(reportId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Report not found"));
+
+        // Scope check na załadowanej encji — bez dodatkowego query
+        requireCommentInScope(report.getComment().getPulse(), scopeColumn, scopeValue);
 
         CommentReportStatus newStatus = parseStatus(rawStatus);
         if (newStatus == null || newStatus == CommentReportStatus.PENDING) {
@@ -344,6 +350,13 @@ public class PulseCommentService {
         }
     }
 
+    /** Bug #2: weryfikuje że komentarz faktycznie należy do podanego pulsu. */
+    private static void requireCommentBelongsToPulse(PulseComment c, Long pulseId) {
+        if (!c.getPulse().getId().equals(pulseId)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Comment not found in this pulse");
+        }
+    }
+
     private Set<Long> fetchLikedIds(Long userId, List<PulseComment> comments) {
         if (userId == null || comments.isEmpty()) return Collections.emptySet();
         Set<Long> ids = comments.stream().map(PulseComment::getId).collect(Collectors.toSet());
@@ -351,7 +364,7 @@ public class PulseCommentService {
     }
 
     private static void requireCommentInScope(Pulse pulse, String scopeColumn, String scopeValue) {
-        if (scopeColumn == null) return; // SUPER_ADMIN — brak filtru
+        if (scopeColumn == null) return;
         String pulseVal = switch (scopeColumn) {
             case "city"        -> pulse.getCity();
             case "gmina"       -> pulse.getGmina();
@@ -401,14 +414,15 @@ public class PulseCommentService {
     }
 
     private static CommentReportResponse toReportResponse(CommentReport r) {
-        PulseComment c   = r.getComment();
-        User reporter    = r.getReporter();
-        User reviewer    = r.getReviewedBy();
+        PulseComment c = r.getComment();
+        User reporter  = r.getReporter();
+        User reviewer  = r.getReviewedBy();
         return new CommentReportResponse(
                 String.valueOf(r.getId()),
                 String.valueOf(c.getId()),
                 String.valueOf(c.getPulse().getId()),
                 c.getBody(),
+                r.getOriginalBody(),           // snapshot z momentu zgłoszenia
                 reporter != null ? reporter.getId()    : null,
                 reporter != null ? reporter.getEmail() : null,
                 r.getReason().name(),

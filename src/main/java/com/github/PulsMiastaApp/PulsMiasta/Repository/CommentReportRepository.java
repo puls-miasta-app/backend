@@ -48,22 +48,17 @@ public interface CommentReportRepository extends JpaRepository<CommentReport, Lo
             Pageable pageable);
 
     /**
-     * Używane do weryfikacji scope przy PATCH /reports/{id}.
-     * Sprawdza, czy dany raport jest w zasięgu admina.
+     * Ładuje raport razem z komentarzem i pulsem (JOIN FETCH).
+     * Używane w reviewReport — umożliwia sprawdzenie scope na załadowanej encji
+     * bez osobnego query (eliminuje TOCTOU existsByIdInScope + findById).
      */
     @Query("""
-            SELECT COUNT(r) > 0 FROM CommentReport r
-            JOIN r.comment c
-            JOIN c.pulse p
-            WHERE r.id = :reportId
-              AND (:scopeColumn IS NULL OR
-                  (:scopeColumn = 'city'        AND p.city        = :scopeValue) OR
-                  (:scopeColumn = 'gmina'       AND p.gmina       = :scopeValue) OR
-                  (:scopeColumn = 'powiat'      AND p.powiat      = :scopeValue) OR
-                  (:scopeColumn = 'wojewodztwo' AND p.wojewodztwo = :scopeValue))
+            SELECT r FROM CommentReport r
+            JOIN FETCH r.comment c
+            JOIN FETCH c.pulse
+            JOIN FETCH r.reporter
+            LEFT JOIN FETCH r.reviewedBy
+            WHERE r.id = :id
             """)
-    boolean existsByIdInScope(
-            @Param("reportId") Long reportId,
-            @Param("scopeColumn") String scopeColumn,
-            @Param("scopeValue") String scopeValue);
+    Optional<CommentReport> findByIdWithCommentAndPulse(@Param("id") Long id);
 }

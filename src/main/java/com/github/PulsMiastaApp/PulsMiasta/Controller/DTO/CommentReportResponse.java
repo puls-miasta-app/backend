@@ -4,7 +4,10 @@ public record CommentReportResponse(
         String id,
         String commentId,
         String pulseId,
+        /** Aktualna treść komentarza (może być "[Usunięto]" po soft-delete). */
         String commentBody,
+        /** Snapshot treści z momentu zgłoszenia — zawsze dostępny dla admina. */
+        String originalBody,
         Long reporterId,
         String reporterEmail,
         String reason,

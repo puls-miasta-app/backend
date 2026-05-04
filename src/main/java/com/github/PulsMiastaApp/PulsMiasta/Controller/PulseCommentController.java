@@ -65,7 +65,7 @@ public class PulseCommentController {
             @AuthenticationPrincipal AuthPrincipal principal
     ) {
         requireAuth(principal);
-        List<CommentResponse> replies = commentService.listReplies(commentId, principal.id());
+        List<CommentResponse> replies = commentService.listReplies(pulseId, commentId, principal.id());
         return ResponseEntity.ok(SuccessResponse.of(Map.of("replies", replies)));
     }
 
@@ -80,7 +80,7 @@ public class PulseCommentController {
             @AuthenticationPrincipal AuthPrincipal principal
     ) {
         requireAuth(principal);
-        CommentResponse updated = commentService.edit(commentId, principal.id(),
+        CommentResponse updated = commentService.edit(pulseId, commentId, principal.id(),
                 body == null ? null : body.body());
         return ResponseEntity.ok(SuccessResponse.of(Map.of("comment", updated)));
     }
@@ -94,7 +94,7 @@ public class PulseCommentController {
             @AuthenticationPrincipal AuthPrincipal principal
     ) {
         requireAuth(principal);
-        commentService.deleteOwn(commentId, principal.id());
+        commentService.deleteOwn(pulseId, commentId, principal.id());
         return ResponseEntity.ok(SuccessResponse.of(null));
     }
 

@@ -41,6 +41,13 @@ public class CommentReport {
     @Column(name = "description", columnDefinition = "TEXT")
     private String description;
 
+    /**
+     * Snapshot treści komentarza w momencie zgłoszenia.
+     * Przechowywany osobno, żeby admin widział oryginalną treść nawet po soft-delete.
+     */
+    @Column(name = "original_body", nullable = false, columnDefinition = "TEXT")
+    private String originalBody;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 20)
     private CommentReportStatus status = CommentReportStatus.PENDING;
