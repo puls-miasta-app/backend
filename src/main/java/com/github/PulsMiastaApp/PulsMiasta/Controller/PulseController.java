@@ -102,7 +102,7 @@ public class PulseController {
 
     @PostMapping(path = "/with-photo", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<SuccessResponse<Map<String, PulseResponse>>> createPulseWithPhoto(
-            @RequestParam("file") MultipartFile file,
+            @RequestParam("photos") List<MultipartFile> photos,
             @RequestParam(value = "category", required = false) String categoryRaw,
             @RequestParam(value = "description", required = false) String description,
             @RequestParam(value = "latitude", required = false) Double latitude,
@@ -113,13 +113,16 @@ public class PulseController {
             @RequestParam(value = "city", required = false) String city,
             @AuthenticationPrincipal AuthPrincipal principal
     ) {
+        if (photos == null || photos.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "At least one photo is required");
+        }
         requireEmailVerified(principal);
         validateOptionalCoordinates(latitude, longitude);
         PulseCategory category = categoryRaw == null ? null : parseCategoryOrThrow(categoryRaw);
 
-        Pulse pulse = pulseService.createPulseWithPhoto(
+        Pulse pulse = pulseService.createPulseWithPhotos(
                 principal.id(),
-                file,
+                photos,
                 category,
                 description,
                 latitude,
