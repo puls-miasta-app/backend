@@ -12,11 +12,26 @@ public interface CommentReportRepository extends JpaRepository<CommentReport, Lo
 
     boolean existsByCommentIdAndReporterId(Long commentId, Long reporterId);
 
-    Page<CommentReport> findAllByStatus(CommentReportStatus status, Pageable pageable);
-
-    /** Zgłoszenia w zasięgu admina — filtrowanie po lokalizacji pulsu. */
-    @Query("""
+    /**
+     * Zgłoszenia w zasięgu admina — JOIN FETCH eliminuje N+1 dla wszystkich
+     * lazy relacji używanych w toReportResponse (reporter, reviewedBy, comment, pulse).
+     */
+    @Query(value = """
             SELECT r FROM CommentReport r
+            JOIN FETCH r.comment c
+            JOIN FETCH c.pulse p
+            JOIN FETCH r.reporter
+            LEFT JOIN FETCH r.reviewedBy
+            WHERE (:status IS NULL OR r.status = :status)
+              AND (:scopeColumn IS NULL OR
+                  (:scopeColumn = 'city'        AND p.city        = :scopeValue) OR
+                  (:scopeColumn = 'gmina'       AND p.gmina       = :scopeValue) OR
+                  (:scopeColumn = 'powiat'      AND p.powiat      = :scopeValue) OR
+                  (:scopeColumn = 'wojewodztwo' AND p.wojewodztwo = :scopeValue))
+            ORDER BY r.createdAt DESC
+            """,
+            countQuery = """
+            SELECT COUNT(r) FROM CommentReport r
             JOIN r.comment c
             JOIN c.pulse p
             WHERE (:status IS NULL OR r.status = :status)
@@ -25,11 +40,30 @@ public interface CommentReportRepository extends JpaRepository<CommentReport, Lo
                   (:scopeColumn = 'gmina'       AND p.gmina       = :scopeValue) OR
                   (:scopeColumn = 'powiat'      AND p.powiat      = :scopeValue) OR
                   (:scopeColumn = 'wojewodztwo' AND p.wojewodztwo = :scopeValue))
-            ORDER BY r.createdAt DESC
             """)
     Page<CommentReport> findInScope(
             @Param("status") CommentReportStatus status,
             @Param("scopeColumn") String scopeColumn,
             @Param("scopeValue") String scopeValue,
             Pageable pageable);
+
+    /**
+     * Używane do weryfikacji scope przy PATCH /reports/{id}.
+     * Sprawdza, czy dany raport jest w zasięgu admina.
+     */
+    @Query("""
+            SELECT COUNT(r) > 0 FROM CommentReport r
+            JOIN r.comment c
+            JOIN c.pulse p
+            WHERE r.id = :reportId
+              AND (:scopeColumn IS NULL OR
+                  (:scopeColumn = 'city'        AND p.city        = :scopeValue) OR
+                  (:scopeColumn = 'gmina'       AND p.gmina       = :scopeValue) OR
+                  (:scopeColumn = 'powiat'      AND p.powiat      = :scopeValue) OR
+                  (:scopeColumn = 'wojewodztwo' AND p.wojewodztwo = :scopeValue))
+            """)
+    boolean existsByIdInScope(
+            @Param("reportId") Long reportId,
+            @Param("scopeColumn") String scopeColumn,
+            @Param("scopeValue") String scopeValue);
 }

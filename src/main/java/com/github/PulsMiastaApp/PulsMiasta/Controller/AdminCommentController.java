@@ -15,25 +15,25 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.util.List;
 import java.util.Map;
 
 /**
  * Panel admina — moderacja komentarzy i obsługa zgłoszeń.
  * Dostęp zabezpieczony przez SecurityConfig (/v1/admin/**).
+ * Scope geograficzny przekazywany jest do serwisu z AuthPrincipal.
  */
 @RestController
 @RequestMapping("/v1/admin")
 @RequiredArgsConstructor
 public class AdminCommentController {
 
+    private static final int MAX_PAGE_SIZE = 100;
+
     private final PulseCommentService commentService;
 
     // ─── Komentarze pulsu ─────────────────────────────────────────────────────
 
-    /**
-     * Paginowana lista wszystkich komentarzy (top-level + odpowiedzi) dla danego pulsu.
-     * Admin widzi też usunięte.
-     */
     @GetMapping("/pulses/{pulseId}/comments")
     public ResponseEntity<SuccessResponse<AdminCommentListResponse>> listComments(
             @PathVariable("pulseId") Long pulseId,
@@ -42,7 +42,9 @@ public class AdminCommentController {
             @AuthenticationPrincipal AuthPrincipal principal
     ) {
         requireAdmin(principal);
-        Page<CommentResponse> result = commentService.listForAdmin(pulseId, page, size);
+        int safeSize = clampSize(size);
+        int safePage = Math.max(0, page);
+        Page<CommentResponse> result = commentService.listForAdmin(pulseId, safePage, safeSize);
         return ResponseEntity.ok(SuccessResponse.of(new AdminCommentListResponse(
                 result.getContent(),
                 result.getNumber(),
@@ -52,23 +54,19 @@ public class AdminCommentController {
         )));
     }
 
-    /** Usuwa (soft-delete) dowolny komentarz w zasięgu admina. */
+    /** Moderacyjne usunięcie komentarza — weryfikuje scope admina w serwisie. */
     @DeleteMapping("/comments/{commentId}")
     public ResponseEntity<SuccessResponse<Void>> deleteComment(
             @PathVariable("commentId") Long commentId,
             @AuthenticationPrincipal AuthPrincipal principal
     ) {
         requireAdmin(principal);
-        commentService.deleteAsAdmin(commentId);
+        commentService.deleteAsAdmin(commentId, principal.adminScopeColumn(), principal.adminScopeValue());
         return ResponseEntity.ok(SuccessResponse.of(null));
     }
 
     // ─── Zgłoszenia ───────────────────────────────────────────────────────────
 
-    /**
-     * Paginowana lista zgłoszeń komentarzy w zasięgu admina.
-     * Parametr status: PENDING | REVIEWED | DISMISSED (null = wszystkie).
-     */
     @GetMapping("/comments/reports")
     public ResponseEntity<SuccessResponse<AdminReportListResponse>> listReports(
             @RequestParam(required = false) String status,
@@ -77,11 +75,13 @@ public class AdminCommentController {
             @AuthenticationPrincipal AuthPrincipal principal
     ) {
         requireAdmin(principal);
+        int safeSize = clampSize(size);
+        int safePage = Math.max(0, page);
         Page<CommentReportResponse> result = commentService.listReports(
                 status,
                 principal.adminScopeColumn(),
                 principal.adminScopeValue(),
-                page, size
+                safePage, safeSize
         );
         return ResponseEntity.ok(SuccessResponse.of(new AdminReportListResponse(
                 result.getContent(),
@@ -92,7 +92,7 @@ public class AdminCommentController {
         )));
     }
 
-    /** Rozpatruje zgłoszenie — zatwierdza (REVIEWED) lub oddala (DISMISSED). */
+    /** Rozpatruje zgłoszenie — weryfikuje scope admina w serwisie. */
     @PatchMapping(value = "/comments/reports/{reportId}", consumes = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<SuccessResponse<Map<String, CommentReportResponse>>> reviewReport(
             @PathVariable("reportId") Long reportId,
@@ -105,7 +105,9 @@ public class AdminCommentController {
                 principal.id(),
                 body == null ? null : body.status(),
                 body == null ? null : body.adminNote(),
-                body != null && body.deleteComment()
+                body != null && body.deleteComment(),
+                principal.adminScopeColumn(),
+                principal.adminScopeValue()
         );
         return ResponseEntity.ok(SuccessResponse.of(Map.of("report", updated)));
     }
@@ -118,10 +120,14 @@ public class AdminCommentController {
         }
     }
 
+    private static int clampSize(int size) {
+        return Math.min(Math.max(1, size), MAX_PAGE_SIZE);
+    }
+
     // ─── Response wrappers ────────────────────────────────────────────────────
 
     public record AdminCommentListResponse(
-            java.util.List<CommentResponse> items,
+            List<CommentResponse> items,
             int page,
             int size,
             long totalElements,
@@ -129,7 +135,7 @@ public class AdminCommentController {
     ) {}
 
     public record AdminReportListResponse(
-            java.util.List<CommentReportResponse> items,
+            List<CommentReportResponse> items,
             int page,
             int size,
             long totalElements,

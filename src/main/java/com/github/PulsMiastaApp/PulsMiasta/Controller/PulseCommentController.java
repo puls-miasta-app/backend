@@ -2,6 +2,7 @@ package com.github.PulsMiastaApp.PulsMiasta.Controller;
 
 import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.CommentResponse;
 import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.CreateCommentRequest;
+import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.EditCommentRequest;
 import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.ReportCommentRequest;
 import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.SuccessResponse;
 import com.github.PulsMiastaApp.PulsMiasta.Security.Model.AuthPrincipal;
@@ -57,7 +58,6 @@ public class PulseCommentController {
 
     // ─── Odpowiedzi na komentarz ──────────────────────────────────────────────
 
-    /** Zwraca odpowiedzi na wybrany komentarz. */
     @GetMapping("/v1/pulses/{id}/comments/{commentId}/replies")
     public ResponseEntity<SuccessResponse<Map<String, List<CommentResponse>>>> listReplies(
             @PathVariable("id") Long pulseId,
@@ -69,13 +69,14 @@ public class PulseCommentController {
         return ResponseEntity.ok(SuccessResponse.of(Map.of("replies", replies)));
     }
 
-    // ─── Edycja i usuwanie ────────────────────────────────────────────────────
+    // ─── Edycja ───────────────────────────────────────────────────────────────
 
+    /** Edycja własnego komentarza — dedykowane DTO bez parentCommentId. */
     @PatchMapping(value = "/v1/pulses/{id}/comments/{commentId}", consumes = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<SuccessResponse<Map<String, CommentResponse>>> edit(
             @PathVariable("id") Long pulseId,
             @PathVariable("commentId") Long commentId,
-            @RequestBody CreateCommentRequest body,
+            @RequestBody EditCommentRequest body,
             @AuthenticationPrincipal AuthPrincipal principal
     ) {
         requireAuth(principal);
@@ -83,6 +84,8 @@ public class PulseCommentController {
                 body == null ? null : body.body());
         return ResponseEntity.ok(SuccessResponse.of(Map.of("comment", updated)));
     }
+
+    // ─── Usuwanie ────────────────────────────────────────────────────────────
 
     @DeleteMapping("/v1/pulses/{id}/comments/{commentId}")
     public ResponseEntity<SuccessResponse<Void>> delete(
@@ -97,7 +100,6 @@ public class PulseCommentController {
 
     // ─── Lajki ────────────────────────────────────────────────────────────────
 
-    /** Toggle lajka — jeden request polubi lub odpolubi komentarz. */
     @PostMapping("/v1/comments/{commentId}/like")
     public ResponseEntity<SuccessResponse<Map<String, CommentResponse>>> toggleLike(
             @PathVariable("commentId") Long commentId,
