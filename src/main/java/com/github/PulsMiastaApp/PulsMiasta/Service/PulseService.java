@@ -113,44 +113,55 @@ public class PulseService {
      * upload zdjęcia, szyfrowanie, async AI, dedup merge.
      */
     @Transactional
-    public Pulse createPulseWithPhoto(Long userId,
-                                      MultipartFile photo,
-                                      PulseCategory category,
-                                      String description,
-                                      Double latitude,
-                                      Double longitude,
-                                      String address,
-                                      String district,
-                                      String street,
-                                      String city) {
+    public Pulse createPulseWithPhotos(Long userId,
+                                       List<MultipartFile> photos,
+                                       PulseCategory category,
+                                       String description,
+                                       Double latitude,
+                                       Double longitude,
+                                       String address,
+                                       String district,
+                                       String street,
+                                       String city) {
 
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
-
-        byte[] imageBytes = readBytes(photo);
-        String contentType = photo.getContentType();
-        String originalFilename = photo.getOriginalFilename();
 
         Pulse pulse = buildPulse(user, category, description, latitude, longitude,
                 address, district, street, city);
         pulseRepository.save(pulse);
 
-        PulsePhoto pulsePhoto = photoStorageService.uploadAndSavePhoto(
-                imageBytes, originalFilename, contentType, user, pulse);
-        pulse.getPhotos().add(pulsePhoto);
+        byte[] firstBytes = null;
+        String firstContentType = null;
 
-        registerRollbackCleanup(pulsePhoto.getObjectKey());
+        for (MultipartFile photo : photos) {
+            byte[] imageBytes = readBytes(photo);
+            String contentType = photo.getContentType();
+            String originalFilename = photo.getOriginalFilename();
+
+            PulsePhoto pulsePhoto = photoStorageService.uploadAndSavePhoto(
+                    imageBytes, originalFilename, contentType, user, pulse);
+            pulse.getPhotos().add(pulsePhoto);
+            registerRollbackCleanup(pulsePhoto.getObjectKey());
+
+            if (firstBytes == null) {
+                firstBytes = imageBytes;
+                firstContentType = contentType;
+            }
+        }
 
         final Long pulseId = pulse.getId();
+        final byte[] aiBytes = firstBytes;
+        final String aiContentType = firstContentType;
         registerAfterCommit(() ->
-                pulseAiAnalysisService.analyseAsync(pulseId, imageBytes, contentType));
+                pulseAiAnalysisService.analyseAsync(pulseId, aiBytes, aiContentType));
 
         if (latitude != null && longitude != null) {
             registerAfterCommit(() -> enrichLocationAsync(pulseId, latitude, longitude));
         }
 
-        log.info("Pulse created with photo: id={}, photoKey={}, lat={}, lng={}",
-                pulseId, pulsePhoto.getObjectKey(), latitude, longitude);
+        log.info("Pulse created with {} photo(s): id={}, lat={}, lng={}",
+                photos.size(), pulseId, latitude, longitude);
         return pulse;
     }
 
