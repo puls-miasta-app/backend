@@ -13,6 +13,7 @@ jobs:
         with:
           host: ${{ secrets.SSH_HOST }}
           username: pi
+          port: 58273
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
             docker network create puls-miasta 2>/dev/null || true
