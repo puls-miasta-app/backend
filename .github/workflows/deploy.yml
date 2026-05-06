@@ -19,4 +19,5 @@ jobs:
             docker network create puls-miasta 2>/dev/null || true
             cd /home/deploy/puls-miasta/backend
             git pull origin main
+            docker compose down
             docker compose up -d --build
