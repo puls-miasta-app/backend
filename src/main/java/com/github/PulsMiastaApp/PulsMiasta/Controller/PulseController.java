@@ -1,6 +1,5 @@
 package com.github.PulsMiastaApp.PulsMiasta.Controller;
 
-import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.CreatePulseRequest;
 import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.PulseResponse;
 import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.SuccessResponse;
 import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.VotePulseRequest;
@@ -38,9 +37,8 @@ import java.util.Map;
  * Endpointy używane bezpośrednio przez aplikację mobilną:
  * <ul>
  *   <li>{@code GET /v1/pulses} — feed z filtrowaniem po district/street</li>
- *   <li>{@code POST /v1/pulses} — utworzenie pulse'a (JSON body zgodny z mobile)</li>
+ *   <li>{@code POST /v1/pulses} — utworzenie pulse'a (multipart; photos opcjonalne)</li>
  *   <li>{@code POST /v1/pulses/vote} — głosowanie up/down</li>
- *   <li>{@code POST /v1/pulses/with-photo} — wariant multipart z plikiem (real photo upload)</li>
  *   <li>{@code GET /v1/pulses/me}, {@code /{id}}, {@code /photos/{photoId}} — szczegóły / własne</li>
  * </ul>
  */
@@ -72,37 +70,11 @@ public class PulseController {
         return ResponseEntity.ok(SuccessResponse.of(Map.of("pulses", items)));
     }
 
-    // ---------- CREATE (mobile JSON body) ----------
+    // ---------- CREATE ----------
 
-    @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
+    @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<SuccessResponse<Map<String, PulseResponse>>> createPulse(
-            @RequestBody CreatePulseRequest body,
-            @AuthenticationPrincipal AuthPrincipal principal
-    ) {
-        requireEmailVerified(principal);
-        PulseCategory category = parseCategoryOrThrow(body.category());
-        validateOptionalCoordinates(body.latitude(), body.longitude());
-
-        Pulse pulse = pulseService.createPulseMetadata(
-                principal.id(),
-                category,
-                body.description(),
-                body.latitude(),
-                body.longitude(),
-                body.address(),
-                body.district(),
-                body.street(),
-                body.city()
-        );
-        return ResponseEntity.status(HttpStatus.CREATED)
-                .body(SuccessResponse.of(Map.of("pulse", PulseMapper.toResponse(pulse))));
-    }
-
-    // ---------- CREATE (real photo upload, multipart) ----------
-
-    @PostMapping(path = "/with-photo", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ResponseEntity<SuccessResponse<Map<String, PulseResponse>>> createPulseWithPhoto(
-            @RequestParam("photos") List<MultipartFile> photos,
+            @RequestParam(value = "photos", required = false) List<MultipartFile> photos,
             @RequestParam(value = "category", required = false) String categoryRaw,
             @RequestParam(value = "description", required = false) String description,
             @RequestParam(value = "latitude", required = false) Double latitude,
@@ -113,25 +85,17 @@ public class PulseController {
             @RequestParam(value = "city", required = false) String city,
             @AuthenticationPrincipal AuthPrincipal principal
     ) {
-        if (photos == null || photos.isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "At least one photo is required");
-        }
         requireEmailVerified(principal);
         validateOptionalCoordinates(latitude, longitude);
-        PulseCategory category = categoryRaw == null ? null : parseCategoryOrThrow(categoryRaw);
+        PulseCategory category = parseCategoryOrThrow(categoryRaw);
 
-        Pulse pulse = pulseService.createPulseWithPhotos(
-                principal.id(),
-                photos,
-                category,
-                description,
-                latitude,
-                longitude,
-                address,
-                district,
-                street,
-                city
-        );
+        boolean hasPhotos = photos != null && !photos.isEmpty();
+        Pulse pulse = hasPhotos
+                ? pulseService.createPulseWithPhotos(principal.id(), photos, category, description,
+                        latitude, longitude, address, district, street, city)
+                : pulseService.createPulseMetadata(principal.id(), category, description,
+                        latitude, longitude, address, district, street, city);
+
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(SuccessResponse.of(Map.of("pulse", PulseMapper.toResponse(pulse))));
     }
