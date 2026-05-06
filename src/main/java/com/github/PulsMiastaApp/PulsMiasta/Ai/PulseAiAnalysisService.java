@@ -3,6 +3,7 @@ package com.github.PulsMiastaApp.PulsMiasta.Ai;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.Pulse;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.PulsePhoto;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Enums.PulsePriority;
+import com.github.PulsMiastaApp.PulsMiasta.Push.PushNotificationService;
 import com.github.PulsMiastaApp.PulsMiasta.Repository.PulseFeedJdbcRepository;
 import com.github.PulsMiastaApp.PulsMiasta.Repository.PulsePhotoRepository;
 import lombok.RequiredArgsConstructor;
@@ -33,6 +34,7 @@ public class PulseAiAnalysisService {
     private final GeminiProperties geminiProperties;
     private final PulseFeedJdbcRepository pulseFeedJdbcRepository;
     private final PulsePhotoRepository pulsePhotoRepository;
+    private final PushNotificationService pushNotificationService;
 
     @Async("photoUploadExecutor")
     @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -242,6 +244,10 @@ public class PulseAiAnalysisService {
 
         pulseFeedJdbcRepository.incrementDuplicateCount(primary.getId());
         pulseFeedJdbcRepository.markMerged(source.getId(), primary.getId());
+
+        if (source.getUser() != null) {
+            pushNotificationService.notifyMerged(source.getUser().getId(), primary.getId());
+        }
     }
 
     private static double haversineMeters(double lat1, double lng1, double lat2, double lng2) {

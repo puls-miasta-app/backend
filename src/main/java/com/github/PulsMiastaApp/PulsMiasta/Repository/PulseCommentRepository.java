@@ -32,6 +32,8 @@ public interface PulseCommentRepository extends JpaRepository<PulseComment, Long
 
     long countByPulseIdAndParentCommentIsNull(Long pulseId);
 
+    long countByPulseIdAndParentCommentIsNullAndDeletedAtIsNull(Long pulseId);
+
     long countByPulseId(Long pulseId);
 
     long countByUserId(Long userId);

@@ -55,6 +55,24 @@ public class PushNotificationService {
         ));
     }
 
+    /** Powiadamia właściciela pulsa że zostało podpięte pod istniejące zgłoszenie. */
+    @Async("photoUploadExecutor")
+    @Transactional(readOnly = true)
+    public void notifyMerged(Long ownerId, Long primaryPulseId) {
+        if (!canReceive(ownerId, PrefType.STATUS_UPDATES)) return;
+        List<String> tokens = tokensFor(ownerId);
+        if (tokens.isEmpty()) return;
+
+        Pulse primary = pulseFeedJdbcRepository.findByIdWithPhotos(primaryPulseId).orElse(null);
+        String primaryTitle = primary != null ? truncate(primary.getTitle(), 50) : "inne zgłoszenie";
+
+        expoPushService.send(tokens,
+                "Zgłoszenie podpięte",
+                "Twoje zgłoszenie dotyczy tego samego problemu co \"" + primaryTitle + "\". Możesz śledzić je tam.",
+                Map.of("pulseId", primaryPulseId, "type", "MERGED")
+        );
+    }
+
     /** Powiadamia właściciela pulsa o nowym komentarzu (gdy ktoś inny komentuje). */
     @Async("photoUploadExecutor")
     @Transactional(readOnly = true)

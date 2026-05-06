@@ -27,7 +27,8 @@ public record PulseResponse(
         Double lng,
         String createdByEmail,
         String userVote,
-        List<PhotoInfo> photos
+        List<PhotoInfo> photos,
+        String mergedIntoId
 ) {
     public record PhotoInfo(
             Long id,

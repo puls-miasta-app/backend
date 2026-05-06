@@ -62,8 +62,11 @@ public class PulseCommentService {
         ensurePulseExists(pulseId);
         List<PulseComment> comments =
                 commentRepository.findAllByPulseIdAndParentCommentIsNullOrderByCreatedAtAsc(pulseId);
-        Set<Long> liked = fetchLikedIds(currentUserId, comments);
-        return comments.stream()
+        List<PulseComment> visible = comments.stream()
+                .filter(c -> c.getDeletedAt() == null)
+                .toList();
+        Set<Long> liked = fetchLikedIds(currentUserId, visible);
+        return visible.stream()
                 .map(c -> toResponse(c, liked.contains(c.getId())))
                 .toList();
     }
@@ -85,8 +88,10 @@ public class PulseCommentService {
             return Collections.emptyList();
         }
 
-        List<PulseComment> replies =
-                commentRepository.findAllByParentCommentIdOrderByCreatedAtAsc(commentId);
+        List<PulseComment> replies = commentRepository.findAllByParentCommentIdOrderByCreatedAtAsc(commentId)
+                .stream()
+                .filter(c -> c.getDeletedAt() == null)
+                .toList();
         Set<Long> liked = fetchLikedIds(currentUserId, replies);
         return replies.stream()
                 .map(c -> toResponse(c, liked.contains(c.getId())))
@@ -340,7 +345,7 @@ public class PulseCommentService {
         if (parentId != null) {
             commentRepository.decrementReplyCount(parentId);
         } else {
-            long newCount = commentRepository.countByPulseIdAndParentCommentIsNull(c.getPulse().getId());
+            long newCount = commentRepository.countByPulseIdAndParentCommentIsNullAndDeletedAtIsNull(c.getPulse().getId());
             pulseFeedJdbcRepository.updateCommentsCount(c.getPulse().getId(), (int) newCount);
         }
     }

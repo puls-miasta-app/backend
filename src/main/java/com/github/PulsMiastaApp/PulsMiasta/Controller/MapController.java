@@ -69,7 +69,7 @@ public class MapController {
      * @param limit    max wyników (domyślnie 500, max 2000)
      */
     @GetMapping(path = "/pulses", produces = MediaType.APPLICATION_JSON_VALUE)
-    public ResponseEntity<MapPulseResponse> getPulses(
+    public ResponseEntity<SuccessResponse<MapPulseResponse>> getPulses(
             @RequestParam("swLat") double swLat,
             @RequestParam("swLng") double swLng,
             @RequestParam("neLat") double neLat,
@@ -99,7 +99,7 @@ public class MapController {
 
         return ResponseEntity.ok()
                 .cacheControl(CacheControl.maxAge(30, TimeUnit.SECONDS).cachePublic())
-                .body(body);
+                .body(SuccessResponse.of(body));
     }
 
     /**
