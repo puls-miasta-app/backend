@@ -5,7 +5,6 @@ import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.SuccessResponse;
 import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.VotePulseRequest;
 import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.VotePulseResponse;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.Pulse;
-import com.github.PulsMiastaApp.PulsMiasta.Model.Enums.PulseCategory;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Enums.VoteDirection;
 import com.github.PulsMiastaApp.PulsMiasta.Security.Model.AuthPrincipal;
 import com.github.PulsMiastaApp.PulsMiasta.Service.PulseService;
@@ -37,7 +36,7 @@ import java.util.Map;
  * Endpointy używane bezpośrednio przez aplikację mobilną:
  * <ul>
  *   <li>{@code GET /v1/pulses} — feed z filtrowaniem po district/street</li>
- *   <li>{@code POST /v1/pulses} — utworzenie pulse'a (multipart; photos opcjonalne)</li>
+ *   <li>{@code POST /v1/pulses} — utworzenie pulse'a (multipart: photos wymagane + lat/lon opcjonalne)</li>
  *   <li>{@code POST /v1/pulses/vote} — głosowanie up/down</li>
  *   <li>{@code GET /v1/pulses/me}, {@code /{id}}, {@code /photos/{photoId}} — szczegóły / własne</li>
  * </ul>
@@ -74,27 +73,19 @@ public class PulseController {
 
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<SuccessResponse<Map<String, PulseResponse>>> createPulse(
-            @RequestParam(value = "photos", required = false) List<MultipartFile> photos,
-            @RequestParam(value = "category", required = false) String categoryRaw,
-            @RequestParam(value = "description", required = false) String description,
+            @RequestParam("photos") List<MultipartFile> photos,
             @RequestParam(value = "latitude", required = false) Double latitude,
             @RequestParam(value = "longitude", required = false) Double longitude,
-            @RequestParam(value = "address", required = false) String address,
-            @RequestParam(value = "district", required = false) String district,
-            @RequestParam(value = "street", required = false) String street,
-            @RequestParam(value = "city", required = false) String city,
             @AuthenticationPrincipal AuthPrincipal principal
     ) {
         requireEmailVerified(principal);
+        if (photos == null || photos.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "At least one photo is required");
+        }
         validateOptionalCoordinates(latitude, longitude);
-        PulseCategory category = parseCategoryOrThrow(categoryRaw);
 
-        boolean hasPhotos = photos != null && !photos.isEmpty();
-        Pulse pulse = hasPhotos
-                ? pulseService.createPulseWithPhotos(principal.id(), photos, category, description,
-                        latitude, longitude, address, district, street, city)
-                : pulseService.createPulseMetadata(principal.id(), category, description,
-                        latitude, longitude, address, district, street, city);
+        Pulse pulse = pulseService.createPulse(
+                principal.id(), photos, null, null, latitude, longitude, null, null, null, null);
 
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(SuccessResponse.of(Map.of("pulse", PulseMapper.toResponse(pulse))));
@@ -223,22 +214,6 @@ public class PulseController {
     }
 
     // ---------- helpers ----------
-
-    private static PulseCategory parseCategoryOrThrow(String raw) {
-        try {
-            PulseCategory c = PulseCategory.fromLabel(raw);
-            if (c == null) {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "category is required");
-            }
-            return c;
-        } catch (IllegalArgumentException e) {
-            String allowed = java.util.Arrays.stream(PulseCategory.values())
-                    .map(PulseCategory::label)
-                    .collect(java.util.stream.Collectors.joining(", "));
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "Invalid category: must be one of " + allowed);
-        }
-    }
 
     private static void validateOptionalCoordinates(Double latitude, Double longitude) {
         if (latitude == null && longitude == null) {

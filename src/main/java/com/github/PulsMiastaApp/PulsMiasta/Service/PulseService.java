@@ -49,42 +49,6 @@ public class PulseService {
     private final ReverseGeocodingService reverseGeocodingService;
     private final PushNotificationService pushNotificationService;
 
-    // ---------- CREATE (JSON body, bez pliku) ----------
-
-    /**
-     * Prosta ścieżka create używana przez mobile — body przychodzi jako JSON, fizyczne
-     * zdjęcie (jeśli jest) dostarczane jest osobno przez {@code /v1/pulses/{id}/photo}.
-     * Jeżeli caller dostarczył lat/lng, uruchamiamy async reverse geocoding żeby wypełnić
-     * district/street.
-     */
-    @Transactional
-    public Pulse createPulseMetadata(Long userId,
-                                     PulseCategory category,
-                                     String description,
-                                     Double latitude,
-                                     Double longitude,
-                                     String address,
-                                     String district,
-                                     String street,
-                                     String city) {
-
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
-
-        Pulse pulse = buildPulse(user, category, description, latitude, longitude,
-                address, district, street, city);
-        pulseRepository.save(pulse);
-
-        final Long pulseId = pulse.getId();
-        if (latitude != null && longitude != null) {
-            registerAfterCommit(() -> enrichLocationAsync(pulseId, latitude, longitude));
-        }
-
-        log.info("Pulse metadata created: id={}, category={}, district={}, street={}",
-                pulseId, category, district, street);
-        return pulse;
-    }
-
     private Pulse buildPulse(User user,
                              PulseCategory category,
                              String description,
@@ -110,12 +74,8 @@ public class PulseService {
         return pulse;
     }
 
-    /**
-     * Pełny create z plikiem — zachowuje poprzednią logikę z {@code ReportService}:
-     * upload zdjęcia, szyfrowanie, async AI, dedup merge.
-     */
     @Transactional
-    public Pulse createPulseWithPhotos(Long userId,
+    public Pulse createPulse(Long userId,
                                        List<MultipartFile> photos,
                                        PulseCategory category,
                                        String description,
