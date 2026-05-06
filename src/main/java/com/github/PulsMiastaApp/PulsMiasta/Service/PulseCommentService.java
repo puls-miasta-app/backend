@@ -8,6 +8,7 @@ import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.PulseComment;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.User;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Enums.CommentReportReason;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Enums.CommentReportStatus;
+import com.github.PulsMiastaApp.PulsMiasta.Push.PushNotificationService;
 import com.github.PulsMiastaApp.PulsMiasta.Repository.CommentLikeRepository;
 import com.github.PulsMiastaApp.PulsMiasta.Repository.CommentReportRepository;
 import com.github.PulsMiastaApp.PulsMiasta.Repository.PulseCommentRepository;
@@ -23,6 +24,9 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
+
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.LocalDateTime;
 import java.util.Collections;
@@ -49,6 +53,7 @@ public class PulseCommentService {
     private final PulseFeedJdbcRepository pulseFeedJdbcRepository;
     private final UserRepository          userRepository;
     private final JdbcTemplate            jdbcTemplate;
+    private final PushNotificationService pushNotificationService;
 
     // ─── Odczyt ────────────────────────────────────────────────────────────────
 
@@ -125,7 +130,29 @@ public class PulseCommentService {
             pulseFeedJdbcRepository.updateCommentsCount(pulseId, (int) newCount);
         }
 
+        Long savedCommentId = c.getId();
+        Long commenterId = user.getId();
+        if (parentCommentId != null) {
+            Long capturedParentId = parentCommentId;
+            registerAfterCommit(() -> pushNotificationService.notifyCommentReply(savedCommentId, capturedParentId));
+        } else {
+            registerAfterCommit(() -> pushNotificationService.notifyNewComment(pulseId, savedCommentId, commenterId));
+        }
+
         return toResponse(c, false);
+    }
+
+    private void registerAfterCommit(Runnable task) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    task.run();
+                }
+            });
+        } else {
+            task.run();
+        }
     }
 
     // ─── Edycja ────────────────────────────────────────────────────────────────

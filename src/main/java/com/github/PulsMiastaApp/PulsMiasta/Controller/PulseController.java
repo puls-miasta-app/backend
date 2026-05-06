@@ -190,6 +190,19 @@ public class PulseController {
                 pulses.stream().map(p -> PulseMapper.toResponse(p, votes.get(p.getId()))).toList()));
     }
 
+    @GetMapping("/{id}/duplicates")
+    public ResponseEntity<SuccessResponse<Map<String, List<PulseResponse>>>> getDuplicates(
+            @PathVariable("id") Long id,
+            @AuthenticationPrincipal AuthPrincipal principal
+    ) {
+        requireAuthenticated(principal);
+        List<Pulse> duplicates = pulseService.listDuplicates(id);
+        List<PulseResponse> items = duplicates.stream()
+                .map(PulseMapper::toResponse)
+                .toList();
+        return ResponseEntity.ok(SuccessResponse.of(Map.of("duplicates", items)));
+    }
+
     @GetMapping("/{id}")
     public ResponseEntity<SuccessResponse<PulseResponse>> getPulse(
             @PathVariable("id") Long id,

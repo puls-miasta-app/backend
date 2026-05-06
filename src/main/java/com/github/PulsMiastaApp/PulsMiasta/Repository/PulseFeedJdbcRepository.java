@@ -376,6 +376,13 @@ public class PulseFeedJdbcRepository {
         });
     }
 
+    public List<Pulse> findByMergedIntoPulseId(Long primaryId) {
+        String sql = BASE_PULSE_SELECT + " WHERE p.merged_into_pulse_id = ? ORDER BY p.created_at ASC";
+        List<Pulse> pulses = runPulseQuery(sql, List.of(primaryId));
+        attachPhotos(pulses);
+        return pulses;
+    }
+
     public List<Pulse> findInBounds(double swLat, double swLng, double neLat, double neLng,
                                      PulseCategory category, PulseStatus status, int limit) {
         StringBuilder sql = new StringBuilder(BASE_PULSE_SELECT);

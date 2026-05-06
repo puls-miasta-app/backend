@@ -26,6 +26,10 @@ public interface PulseCommentRepository extends JpaRepository<PulseComment, Long
     @Query("SELECT c FROM PulseComment c JOIN FETCH c.pulse WHERE c.id = :id")
     Optional<PulseComment> findByIdWithPulse(@Param("id") Long id);
 
+    /** Komentarz z autorem — używane do powiadomień push. */
+    @Query("SELECT c FROM PulseComment c JOIN FETCH c.user WHERE c.id = :id")
+    Optional<PulseComment> findByIdWithUser(@Param("id") Long id);
+
     long countByPulseIdAndParentCommentIsNull(Long pulseId);
 
     long countByPulseId(Long pulseId);

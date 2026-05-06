@@ -1,6 +1,7 @@
 package com.github.PulsMiastaApp.PulsMiasta.Service;
 
 import com.github.PulsMiastaApp.PulsMiasta.Ai.PulseAiAnalysisService;
+import com.github.PulsMiastaApp.PulsMiasta.Push.PushNotificationService;
 import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.VotePulseResponse;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.Pulse;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.PulsePhoto;
@@ -46,6 +47,7 @@ public class PulseService {
     private final PhotoStorageService photoStorageService;
     private final PulseAiAnalysisService pulseAiAnalysisService;
     private final ReverseGeocodingService reverseGeocodingService;
+    private final PushNotificationService pushNotificationService;
 
     // ---------- CREATE (JSON body, bez pliku) ----------
 
@@ -280,6 +282,17 @@ public class PulseService {
     }
 
     @Transactional(readOnly = true)
+    public List<Pulse> listDuplicates(Long pulseId) {
+        Pulse primary = pulseFeedJdbcRepository.findByIdWithPhotos(pulseId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Pulse not found"));
+        if (primary.getMergedIntoPulseId() != null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Pulse " + pulseId + " is itself a duplicate — query the primary pulse instead");
+        }
+        return pulseFeedJdbcRepository.findByMergedIntoPulseId(pulseId);
+    }
+
+    @Transactional(readOnly = true)
     public Page<Pulse> listForAdmin(PulseStatus status, PulseCategory category, PulsePriority priority,
                                     int page, int size,
                                     String scopeColumn, String scopeValue) {
@@ -467,6 +480,7 @@ public class PulseService {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Pulse not found"));
         pulseFeedJdbcRepository.updateStatusById(pulseId, newStatus.name());
         pulse.setStatus(newStatus);
+        registerAfterCommit(() -> pushNotificationService.notifyStatusChange(pulseId, newStatus));
         return pulse;
     }
 
