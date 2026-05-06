@@ -12,11 +12,11 @@ jobs:
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.SSH_HOST }}
-          username: pi
+          username: deploy
           port: 58273
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
             docker network create puls-miasta 2>/dev/null || true
-            cd /home/pi/puls-miasta/backend
+            cd /home/deploy/puls-miasta/backend
             git pull origin main
             docker compose up -d --build
