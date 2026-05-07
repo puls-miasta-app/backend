@@ -1,12 +1,14 @@
 package com.github.PulsMiastaApp.PulsMiasta.Controller;
 
 import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.PulseResponse;
+import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.ReportPulseRequest;
 import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.SuccessResponse;
 import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.VotePulseRequest;
 import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.VotePulseResponse;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.Pulse;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Enums.VoteDirection;
 import com.github.PulsMiastaApp.PulsMiasta.Security.Model.AuthPrincipal;
+import com.github.PulsMiastaApp.PulsMiasta.Service.PulseReportService;
 import com.github.PulsMiastaApp.PulsMiasta.Service.PulseService;
 import com.github.PulsMiastaApp.PulsMiasta.Storage.PhotoStorageService;
 import lombok.RequiredArgsConstructor;
@@ -47,6 +49,7 @@ import java.util.Map;
 public class PulseController {
 
     private final PulseService pulseService;
+    private final PulseReportService pulseReportService;
     private final PhotoStorageService photoStorageService;
 
     // ---------- FEED ----------
@@ -167,6 +170,22 @@ public class PulseController {
         Pulse pulse = pulseService.getAny(id);
         var userVote = pulseService.getUserVote(pulse.getId(), principal.id());
         return ResponseEntity.ok(SuccessResponse.of(PulseMapper.toResponse(pulse, userVote)));
+    }
+
+    // ---------- REPORT ----------
+
+    @PostMapping(path = "/{pulseId}/report", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<SuccessResponse<Void>> reportPulse(
+            @PathVariable("pulseId") Long pulseId,
+            @RequestBody ReportPulseRequest body,
+            @AuthenticationPrincipal AuthPrincipal principal
+    ) {
+        requireEmailVerified(principal);
+        if (body == null || body.reason() == null || body.reason().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "reason is required");
+        }
+        pulseReportService.report(pulseId, principal.id(), body.reason(), body.description());
+        return ResponseEntity.ok(SuccessResponse.of(null));
     }
 
     // ---------- PHOTO STREAM ----------
