@@ -137,7 +137,7 @@ public class AuthController {
                         request.rememberMe(), request.clientType() == ClientType.MOBILE,
                         sessionTtlMinutes, rememberMeWebDays, rememberMeMobileDays);
                 yield ResponseEntity.ok(SuccessResponse.of(
-                        new LoginSuccessResponse(granted.mustChangePassword())));
+                        new LoginSuccessResponse(granted.mustChangePassword(), granted.mustSetup2FA())));
             }
             case LoginResult.TwoFactorRequired pending -> ResponseEntity.status(HttpStatus.ACCEPTED)
                     .body(SuccessResponse.of(new TwoFactorRequiredResponse(
@@ -354,7 +354,26 @@ public class AuthController {
         int passkeysCount = webAuthnService.listCredentials(principal.id()).size();
 
         return ResponseEntity.ok(SuccessResponse.of(
-                new TwoFactorMethodsResponse(user.isTotpEnabled(), user.isEmailOtpEnabled(), passkeysCount)));
+                new TwoFactorMethodsResponse(user.isTotpEnabled(), user.isEmailOtpEnabled(), passkeysCount,
+                        user.getTwoFactorDefaultMethod())));
+    }
+
+    /**
+     * Ustawia domyślną metodę 2FA — wyświetlaną jako pierwsza podczas logowania.
+     * Podana metoda musi być aktualnie włączona na koncie użytkownika.
+     */
+    @PutMapping("/2fa/default")
+    @Operation(summary = "Set the preferred default 2FA method for login")
+    @Tag(name = "Authentication")
+    public ResponseEntity<SuccessResponse<String>> setTwoFactorDefault(
+            @AuthenticationPrincipal AuthPrincipal principal,
+            @Valid @RequestBody SetDefaultMethodRequest request) {
+
+        if (principal == null) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication required");
+        }
+        authService.setTwoFactorDefaultMethod(principal.id(), request.method());
+        return ResponseEntity.ok(SuccessResponse.of("Default 2FA method updated"));
     }
 
     // =========================================================================
@@ -497,7 +516,8 @@ public class AuthController {
     // DTOs
     // =========================================================================
 
-    record TwoFactorMethodsResponse(boolean totpEnabled, boolean emailOtpEnabled, int passkeysCount) {
+    record TwoFactorMethodsResponse(boolean totpEnabled, boolean emailOtpEnabled, int passkeysCount,
+                                    String defaultMethod) {
     }
 
     record SudoStatusResponse(boolean isActive) {
@@ -544,6 +564,12 @@ public class AuthController {
     ) {
     }
 
+    record SetDefaultMethodRequest(
+            @NotBlank @Pattern(regexp = "TOTP|EMAIL_OTP|PASSKEY", message = "method must be TOTP, EMAIL_OTP or PASSKEY")
+            String method
+    ) {
+    }
+
     // -------------------------------------------------------------------------
     // OpenAPI schema helpers — concrete types so springdoc resolves T correctly
     // -------------------------------------------------------------------------
@@ -559,15 +585,20 @@ public class AuthController {
     private static class LoginSuccessResponse extends SuccessResponse<String> {
         @lombok.Getter
         private final boolean mustChangePassword;
+        /** True when the user is an admin with no 2FA method configured. Frontend should redirect to 2FA setup. */
+        @lombok.Getter
+        private final boolean mustSetup2FA;
 
         public LoginSuccessResponse() {
             super(true, "Logged in successfully");
             this.mustChangePassword = false;
+            this.mustSetup2FA = false;
         }
 
-        public LoginSuccessResponse(boolean mustChangePassword) {
+        public LoginSuccessResponse(boolean mustChangePassword, boolean mustSetup2FA) {
             super(true, "Logged in successfully");
             this.mustChangePassword = mustChangePassword;
+            this.mustSetup2FA = mustSetup2FA;
         }
     }
 

@@ -5,6 +5,7 @@ import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.LoginRequest;
 import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.LoginResult;
 import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.RegisterRequest;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.User;
+import com.github.PulsMiastaApp.PulsMiasta.Model.Enums.UserRole;
 import com.github.PulsMiastaApp.PulsMiasta.Repository.UserCredentialRepository;
 import com.github.PulsMiastaApp.PulsMiasta.Repository.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -39,9 +40,7 @@ public class AuthService {
         user.setLastName(request.lastName());
         user.setEmail(request.email());
         user.setRole("USER");
-        // Domyślnie każdy nowy użytkownik ma włączone Email OTP. Może je później wyłączyć
-        // (endpoint to disable + wybór innej metody 2FA do zrobienia osobno).
-        user.setEmailOtpEnabled(true);
+        // 2FA domyślnie wyłączone — user włącza wybraną metodę w ustawieniach konta.
 
         userRepository.save(user);
         emailVerificationService.sendVerificationEmail(user);
@@ -52,15 +51,15 @@ public class AuthService {
     /**
      * Authenticates the user with email + password.
      * <p>
-     * Returns {@link LoginResult.SessionGranted} when no 2FA is configured/required,
-     * or {@link LoginResult.TwoFactorRequired} when the account requires TOTP verification
-     * before a session can be granted (ADMIN role always requires TOTP).
+     * Returns {@link LoginResult.SessionGranted} when the user has no 2FA method enabled,
+     * or {@link LoginResult.TwoFactorRequired} when at least one 2FA method is active
+     * (TOTP, Email OTP, or passkey). Admin accounts ({@link UserRole#isAdmin()}) with
+     * no 2FA configured still receive a session, but {@code mustSetup2FA=true} signals
+     * the client to redirect the user to the 2FA setup page immediately.
      * <p>
      * Performs user lookup before lockout check to prevent email enumeration attacks.
-     * Uses consistent error messages to avoid leaking information about account existence.
-     * <p>
-     * Lockout is scoped to the (clientIp, email) pair so that an attacker sending requests
-     * from their own IP cannot lock out the legitimate owner logging in from a different IP.
+     * Lockout is scoped to the (clientIp, email) pair so an attacker cannot lock out the
+     * legitimate owner from a different IP.
      *
      * @param request  login credentials
      * @param clientIp resolved client IP from {@link RateLimitService#getClientIp}
@@ -86,20 +85,20 @@ public class AuthService {
 
         loginAttemptService.clearAttempts(clientIp, request.email());
 
-        // Migracja istniejących kont: jeżeli user nie ma Email OTP włączonego,
-        // włączamy mu to domyślnie (preferencja w profilu). Nie blokuje loginu —
-        // 2FA na kroku login/step 1 jest wyłączony, cookies lecą od razu tak jak w register.
-        if (!user.isEmailOtpEnabled()) {
-            user.setEmailOtpEnabled(true);
-            userRepository.save(user);
+        List<String> availableMethods = buildAvailableMethods(user);
+
+        if (!availableMethods.isEmpty()) {
+            // Co najmniej jedna metoda 2FA jest włączona — wymagamy drugiego kroku.
+            String pendingToken = twoFactorPendingService.createPendingToken(user.getId(), availableMethods);
+            return new LoginResult.TwoFactorRequired(pendingToken, availableMethods);
         }
 
-        // Brak gate'a 2FA — każdy udany login od razu dostaje sesję.
-        // 2FA flow (login/totp, login/otp/verify, login/passkey/finish) zostaje dostępny
-        // dla klientów, które chcą go użyć jawnie — patrz AuthController.
+        // Brak 2FA. Admini dostają sesję, ale z flagą mustSetup2FA=true, żeby
+        // frontend mógł przekierować ich na stronę konfiguracji 2FA.
+        boolean isAdmin = UserRole.valueOf(user.getRole()).isAdmin();
         AuthResult result = buildAuthResult(user.getId(), request.rememberMe(), request.clientType());
         return new LoginResult.SessionGranted(result.sessionToken(), result.rememberMeToken(),
-                user.isMustChangePassword());
+                user.isMustChangePassword(), isAdmin);
     }
 
     /**
@@ -152,16 +151,39 @@ public class AuthService {
 
     private List<String> buildAvailableMethods(User user) {
         List<String> methods = new ArrayList<>();
-        if (user.isTotpEnabled()) {
-            methods.add("TOTP");
-        }
-        if (user.isEmailOtpEnabled()) {
-            methods.add("EMAIL_OTP");
-        }
-        if (!userCredentialRepository.findAllByUserId(user.getId()).isEmpty()) {
-            methods.add("PASSKEY");
+        if (user.isTotpEnabled()) methods.add("TOTP");
+        if (user.isEmailOtpEnabled()) methods.add("EMAIL_OTP");
+        if (!userCredentialRepository.findAllByUserId(user.getId()).isEmpty()) methods.add("PASSKEY");
+
+        // Domyślna metoda trafia na pierwszą pozycję.
+        String def = user.getTwoFactorDefaultMethod();
+        if (def != null && methods.remove(def)) {
+            methods.add(0, def);
         }
         return methods;
+    }
+
+    /**
+     * Ustawia preferowaną metodę 2FA. Metoda musi być aktualnie włączona na koncie.
+     * Gdy podana metoda nie jest dostępna — rzuca 400.
+     */
+    public void setTwoFactorDefaultMethod(Long userId, String method) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User not found"));
+
+        boolean available = switch (method) {
+            case "TOTP" -> user.isTotpEnabled();
+            case "EMAIL_OTP" -> user.isEmailOtpEnabled();
+            case "PASSKEY" -> !userCredentialRepository.findAllByUserId(userId).isEmpty();
+            default -> false;
+        };
+        if (!available) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "2FA method '" + method + "' is not enabled for this account");
+        }
+
+        user.setTwoFactorDefaultMethod(method);
+        userRepository.save(user);
     }
 
     private AuthResult buildAuthResult(Long userId, boolean rememberMe, ClientType clientType) {
