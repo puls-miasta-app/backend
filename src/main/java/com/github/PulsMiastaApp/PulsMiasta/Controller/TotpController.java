@@ -131,6 +131,9 @@ public class TotpController {
         User user = loadUser(principal);
         user.setTotpEnabled(false);
         user.setTotpSecret(null);
+        if ("TOTP".equals(user.getTwoFactorDefaultMethod())) {
+            user.setTwoFactorDefaultMethod(null);
+        }
         userRepository.save(user);
 
         return ResponseEntity.ok(SuccessResponse.of("TOTP two-factor authentication disabled"));

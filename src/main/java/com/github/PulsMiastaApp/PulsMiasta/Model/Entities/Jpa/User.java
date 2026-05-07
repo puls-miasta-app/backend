@@ -65,13 +65,11 @@ public class User {
     /**
      * Whether email OTP 2FA is active for this account.
      * When true: login requires a one-time code sent to the user's email.
-     * <p>
-     * Enabled by default for every new account — user może później wyłączyć i wybrać
-     * inną metodę (TOTP/passkey). Istniejące konta bez żadnej metody 2FA są
-     * automatycznie migrowane do email OTP przy pierwszym loginie (patrz {@code AuthService#login}).
+     * Disabled by default — user enables it (or TOTP / passkey) via account settings.
+     * Mandatory for all admin roles; optional for USER role.
      */
     @Column(name = "email_otp_enabled", nullable = false)
-    private boolean emailOtpEnabled = true;
+    private boolean emailOtpEnabled = false;
 
     /** Województwo zarządzane przez admina (null dla USER i SUPER_ADMIN). */
     @Column(name = "managed_wojewodztwo", length = 100)
@@ -92,6 +90,14 @@ public class User {
     /** Gdy true — użytkownik musi zmienić hasło przy najbliższym logowaniu (ustawiane przez admina). */
     @Column(name = "must_change_password", nullable = false)
     private boolean mustChangePassword = false;
+
+    /**
+     * Preferowana metoda 2FA wyświetlana jako pierwsza podczas logowania.
+     * Wartości: "TOTP", "EMAIL_OTP", "PASSKEY" lub null (automatycznie — pierwsza dostępna).
+     * Czyszczona automatycznie, gdy dana metoda zostaje wyłączona.
+     */
+    @Column(name = "two_factor_default_method", nullable = true, length = 20)
+    private String twoFactorDefaultMethod;
 
     /**
      * Ensures a webauthnUserHandle is assigned. Call before any WebAuthn ceremony.

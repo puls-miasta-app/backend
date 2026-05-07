@@ -17,8 +17,12 @@ public sealed interface LoginResult {
 
     /**
      * Login completed — session (and optionally remember-me) tokens are ready.
+     *
+     * @param mustChangePassword admin set a temporary password that must be changed before use
+     * @param mustSetup2FA       user is an admin with no 2FA method configured — should be redirected to 2FA setup
      */
-    record SessionGranted(String sessionToken, String rememberMeToken, boolean mustChangePassword) implements LoginResult {
+    record SessionGranted(String sessionToken, String rememberMeToken, boolean mustChangePassword,
+                          boolean mustSetup2FA) implements LoginResult {
     }
 
     /**
