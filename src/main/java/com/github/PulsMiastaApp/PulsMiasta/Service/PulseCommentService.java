@@ -198,7 +198,7 @@ public class PulseCommentService {
 
     @Transactional
     public void deleteAsAdmin(Long commentId, String scopeColumn, String scopeValue) {
-        PulseComment c = commentRepository.findByIdWithPulse(commentId)
+        PulseComment c = commentRepository.findById(commentId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Comment not found"));
         requireCommentInScope(c.getPulse(), scopeColumn, scopeValue);
         if (c.getDeletedAt() != null) return;
