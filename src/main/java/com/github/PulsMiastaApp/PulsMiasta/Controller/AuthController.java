@@ -2,6 +2,7 @@ package com.github.PulsMiastaApp.PulsMiasta.Controller;
 
 import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.*;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.User;
+import com.github.PulsMiastaApp.PulsMiasta.Security.Annotation.RequireSudoMode;
 import com.github.PulsMiastaApp.PulsMiasta.Security.Filter.AuthTokenFilter;
 import com.github.PulsMiastaApp.PulsMiasta.Security.Model.AuthPrincipal;
 import com.github.PulsMiastaApp.PulsMiasta.Security.Service.*;
@@ -361,9 +362,11 @@ public class AuthController {
     /**
      * Ustawia domyślną metodę 2FA — wyświetlaną jako pierwsza podczas logowania.
      * Podana metoda musi być aktualnie włączona na koncie użytkownika.
+     * Wymaga sudo mode — zmiana konfiguracji bezpieczeństwa konta jest akcją krytyczną.
      */
     @PutMapping("/2fa/default")
-    @Operation(summary = "Set the preferred default 2FA method for login")
+    @RequireSudoMode
+    @Operation(summary = "Set the preferred default 2FA method for login (requires sudo mode)")
     @Tag(name = "Authentication")
     public ResponseEntity<SuccessResponse<String>> setTwoFactorDefault(
             @AuthenticationPrincipal AuthPrincipal principal,
