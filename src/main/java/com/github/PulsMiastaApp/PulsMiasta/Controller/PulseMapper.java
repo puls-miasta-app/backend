@@ -28,6 +28,9 @@ public final class PulseMapper {
 
         String email = pulse.getUser() != null ? pulse.getUser().getEmail() : null;
 
+        String mergedIntoId = pulse.getMergedIntoPulseId() != null
+                ? String.valueOf(pulse.getMergedIntoPulseId()) : null;
+
         return new PulseResponse(
                 String.valueOf(pulse.getId()),
                 nullToEmpty(pulse.getTitle()),
@@ -49,7 +52,8 @@ public final class PulseMapper {
                 pulse.getLongitude(),
                 email,
                 userVote == null ? null : userVote.toApi(),
-                photos
+                photos,
+                mergedIntoId
         );
     }
 

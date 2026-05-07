@@ -1,6 +1,7 @@
 package com.github.PulsMiastaApp.PulsMiasta.Service;
 
 import com.github.PulsMiastaApp.PulsMiasta.Ai.PulseAiAnalysisService;
+import com.github.PulsMiastaApp.PulsMiasta.Push.PushNotificationService;
 import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.VotePulseResponse;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.Pulse;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.PulsePhoto;
@@ -46,42 +47,7 @@ public class PulseService {
     private final PhotoStorageService photoStorageService;
     private final PulseAiAnalysisService pulseAiAnalysisService;
     private final ReverseGeocodingService reverseGeocodingService;
-
-    // ---------- CREATE (JSON body, bez pliku) ----------
-
-    /**
-     * Prosta ścieżka create używana przez mobile — body przychodzi jako JSON, fizyczne
-     * zdjęcie (jeśli jest) dostarczane jest osobno przez {@code /v1/pulses/{id}/photo}.
-     * Jeżeli caller dostarczył lat/lng, uruchamiamy async reverse geocoding żeby wypełnić
-     * district/street.
-     */
-    @Transactional
-    public Pulse createPulseMetadata(Long userId,
-                                     PulseCategory category,
-                                     String description,
-                                     Double latitude,
-                                     Double longitude,
-                                     String address,
-                                     String district,
-                                     String street,
-                                     String city) {
-
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
-
-        Pulse pulse = buildPulse(user, category, description, latitude, longitude,
-                address, district, street, city);
-        pulseRepository.save(pulse);
-
-        final Long pulseId = pulse.getId();
-        if (latitude != null && longitude != null) {
-            registerAfterCommit(() -> enrichLocationAsync(pulseId, latitude, longitude));
-        }
-
-        log.info("Pulse metadata created: id={}, category={}, district={}, street={}",
-                pulseId, category, district, street);
-        return pulse;
-    }
+    private final PushNotificationService pushNotificationService;
 
     private Pulse buildPulse(User user,
                              PulseCategory category,
@@ -108,49 +74,56 @@ public class PulseService {
         return pulse;
     }
 
-    /**
-     * Pełny create z plikiem — zachowuje poprzednią logikę z {@code ReportService}:
-     * upload zdjęcia, szyfrowanie, async AI, dedup merge.
-     */
     @Transactional
-    public Pulse createPulseWithPhoto(Long userId,
-                                      MultipartFile photo,
-                                      PulseCategory category,
-                                      String description,
-                                      Double latitude,
-                                      Double longitude,
-                                      String address,
-                                      String district,
-                                      String street,
-                                      String city) {
+    public Pulse createPulse(Long userId,
+                                       List<MultipartFile> photos,
+                                       PulseCategory category,
+                                       String description,
+                                       Double latitude,
+                                       Double longitude,
+                                       String address,
+                                       String district,
+                                       String street,
+                                       String city) {
 
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
-
-        byte[] imageBytes = readBytes(photo);
-        String contentType = photo.getContentType();
-        String originalFilename = photo.getOriginalFilename();
 
         Pulse pulse = buildPulse(user, category, description, latitude, longitude,
                 address, district, street, city);
         pulseRepository.save(pulse);
 
-        PulsePhoto pulsePhoto = photoStorageService.uploadAndSavePhoto(
-                imageBytes, originalFilename, contentType, user, pulse);
-        pulse.getPhotos().add(pulsePhoto);
+        byte[] firstBytes = null;
+        String firstContentType = null;
 
-        registerRollbackCleanup(pulsePhoto.getObjectKey());
+        for (MultipartFile photo : photos) {
+            byte[] imageBytes = readBytes(photo);
+            String contentType = photo.getContentType();
+            String originalFilename = photo.getOriginalFilename();
+
+            PulsePhoto pulsePhoto = photoStorageService.uploadAndSavePhoto(
+                    imageBytes, originalFilename, contentType, user, pulse);
+            pulse.getPhotos().add(pulsePhoto);
+            registerRollbackCleanup(pulsePhoto.getObjectKey());
+
+            if (firstBytes == null) {
+                firstBytes = imageBytes;
+                firstContentType = contentType;
+            }
+        }
 
         final Long pulseId = pulse.getId();
+        final byte[] aiBytes = firstBytes;
+        final String aiContentType = firstContentType;
         registerAfterCommit(() ->
-                pulseAiAnalysisService.analyseAsync(pulseId, imageBytes, contentType));
+                pulseAiAnalysisService.analyseAsync(pulseId, aiBytes, aiContentType));
 
         if (latitude != null && longitude != null) {
             registerAfterCommit(() -> enrichLocationAsync(pulseId, latitude, longitude));
         }
 
-        log.info("Pulse created with photo: id={}, photoKey={}, lat={}, lng={}",
-                pulseId, pulsePhoto.getObjectKey(), latitude, longitude);
+        log.info("Pulse created with {} photo(s): id={}, lat={}, lng={}",
+                photos.size(), pulseId, latitude, longitude);
         return pulse;
     }
 
@@ -266,6 +239,17 @@ public class PulseService {
                     .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Merged target not found"));
         }
         return pulse;
+    }
+
+    @Transactional(readOnly = true)
+    public List<Pulse> listDuplicates(Long pulseId) {
+        Pulse primary = pulseFeedJdbcRepository.findByIdWithPhotos(pulseId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Pulse not found"));
+        if (primary.getMergedIntoPulseId() != null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Pulse " + pulseId + " is itself a duplicate — query the primary pulse instead");
+        }
+        return pulseFeedJdbcRepository.findByMergedIntoPulseId(pulseId);
     }
 
     @Transactional(readOnly = true)
@@ -456,6 +440,7 @@ public class PulseService {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Pulse not found"));
         pulseFeedJdbcRepository.updateStatusById(pulseId, newStatus.name());
         pulse.setStatus(newStatus);
+        registerAfterCommit(() -> pushNotificationService.notifyStatusChange(pulseId, newStatus));
         return pulse;
     }
 
