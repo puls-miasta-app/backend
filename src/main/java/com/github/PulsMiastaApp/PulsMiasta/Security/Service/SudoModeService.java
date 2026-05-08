@@ -35,6 +35,16 @@ public class SudoModeService {
         redisTemplate.delete(PREFIX + sessionToken);
     }
 
+    /**
+     * Returns status in a single Redis call, avoiding the TOCTOU window that would exist
+     * between a separate {@code isSudoModeActive()} + {@code getRemainingTtlSeconds()} pair.
+     */
+    public SudoStatus getStatus(String sessionToken) {
+        Long ttl = redisTemplate.getExpire(PREFIX + sessionToken, TimeUnit.SECONDS);
+        boolean active = ttl != null && ttl > 0;
+        return new SudoStatus(active, active ? ttl : 0L);
+    }
+
     /** Returns seconds remaining until sudo expires, or 0 if not active. */
     public long getRemainingTtlSeconds(String sessionToken) {
         Long ttl = redisTemplate.getExpire(PREFIX + sessionToken, TimeUnit.SECONDS);
@@ -44,4 +54,6 @@ public class SudoModeService {
     public long getSudoTtlSeconds() {
         return sudoModeDuration.getSeconds();
     }
+
+    public record SudoStatus(boolean isActive, long remainingSeconds) {}
 }

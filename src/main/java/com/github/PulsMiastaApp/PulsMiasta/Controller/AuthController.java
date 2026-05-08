@@ -381,9 +381,8 @@ public class AuthController {
         String sessionToken = AuthTokenFilter.extractCookie(request, AuthTokenFilter.SESSION_COOKIE_NAME)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication required"));
 
-        boolean isActive = sudoModeService.isSudoModeActive(sessionToken);
-        long remaining = isActive ? sudoModeService.getRemainingTtlSeconds(sessionToken) : 0L;
-        return ResponseEntity.ok(SuccessResponse.of(new SudoStatusResponse(isActive, remaining)));
+        SudoModeService.SudoStatus status = sudoModeService.getStatus(sessionToken);
+        return ResponseEntity.ok(SuccessResponse.of(new SudoStatusResponse(status.isActive(), status.remainingSeconds())));
     }
 
     /**
@@ -508,6 +507,8 @@ public class AuthController {
             @AuthenticationPrincipal AuthPrincipal principal,
             @Valid @RequestBody OtpVerifyRequest request,
             HttpServletRequest httpRequest) {
+
+        rateLimitService.checkRateLimit(httpRequest, 5, Duration.ofMinutes(1));
 
         User user = loadUser(principal);
 
