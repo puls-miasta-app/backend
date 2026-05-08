@@ -74,9 +74,10 @@ public class GeoController {
         if (q == null || q.isBlank() || q.length() < 2) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Podaj co najmniej 2 znaki");
         }
-        String pattern = "%" + escapeLike(q.trim().toLowerCase()) + "%";
+        String normalized = q.trim().toLowerCase();
+        String pattern = "%" + escapeLike(normalized) + "%";
         List<MiejscowoscSearchResponse> results = miejscowoscRepository
-                .searchByNameWithHierarchy(pattern, PageRequest.of(0, 20))
+                .searchByNameWithHierarchy(pattern, normalized, PageRequest.of(0, 20))
                 .stream()
                 .map(MiejscowoscSearchResponse::from)
                 .toList();
