@@ -48,6 +48,7 @@ public class PulseFeedJdbcRepository {
                    p.category, p.priority, p.status, p.title, p.description,
                    p.latitude, p.longitude, p.address, p.district, p.street, p.city,
                    p.gmina, p.powiat, p.wojewodztwo,
+                   p.gmina_id, p.powiat_id, p.wojewodztwo_id,
                    p.heat, p.ai_note, p.image_hint,
                    p.comments_count, p.upvotes, p.downvotes, p.duplicate_count,
                    p.merged_into_pulse_id, p.created_at, p.updated_at
@@ -150,11 +151,14 @@ public class PulseFeedJdbcRepository {
     }
 
     public void updateLocation(Long pulseId, String district, String street, String city, String address,
-                               String gmina, String powiat, String wojewodztwo) {
+                               String gmina, String powiat, String wojewodztwo,
+                               Long gminaId, Long powiatId, Long wojewodztwoId) {
         jdbcTemplate.update(
                 "UPDATE pulses SET district = ?, street = ?, city = ?, address = ?, " +
-                "gmina = ?, powiat = ?, wojewodztwo = ?, updated_at = NOW() WHERE id = ?",
-                district, street, city, address, gmina, powiat, wojewodztwo, pulseId);
+                "gmina = ?, powiat = ?, wojewodztwo = ?, " +
+                "gmina_id = ?, powiat_id = ?, wojewodztwo_id = ?, updated_at = NOW() WHERE id = ?",
+                district, street, city, address, gmina, powiat, wojewodztwo,
+                gminaId, powiatId, wojewodztwoId, pulseId);
     }
 
     public void updateAiNote(Long pulseId, String note) {
@@ -270,16 +274,19 @@ public class PulseFeedJdbcRepository {
         List<Object> params = new ArrayList<>();
         if (scopeColumn != null && scopeValues != null && !scopeValues.isEmpty()) {
             String col = switch (scopeColumn) {
-                case "city" -> "p.city";
-                case "gmina" -> "p.gmina";
-                case "powiat" -> "p.powiat";
-                case "wojewodztwo" -> "p.wojewodztwo";
+                case "city"           -> "p.city";
+                case "gmina_id"       -> "p.gmina_id";
+                case "powiat_id"      -> "p.powiat_id";
+                case "wojewodztwo_id" -> "p.wojewodztwo_id";
                 default -> throw new IllegalArgumentException("Unknown scope column: " + scopeColumn);
             };
+            boolean isIdColumn = !scopeColumn.equals("city");
             String placeholders = scopeValues.stream().map(v -> "?")
                     .collect(java.util.stream.Collectors.joining(","));
             where.append(" AND ").append(col).append(" IN (").append(placeholders).append(")");
-            params.addAll(scopeValues);
+            for (String v : scopeValues) {
+                params.add(isIdColumn ? Long.parseLong(v) : v);
+            }
         }
         if (status != null) { where.append(" AND p.status = ?"); params.add(status.name()); }
         if (category != null) { where.append(" AND p.category = ?"); params.add(category.name()); }
@@ -318,18 +325,21 @@ public class PulseFeedJdbcRepository {
                              String aiNote, String imageHint, String heat,
                              Double latitude, Double longitude,
                              String address, String district, String street, String city,
-                             String gmina, String powiat, String wojewodztwo) {
+                             String gmina, String powiat, String wojewodztwo,
+                             Long gminaId, Long powiatId, Long wojewodztwoId) {
         String sql = """
                 INSERT INTO pulses
                   (user_id, category, priority, status, title, description,
                    ai_note, image_hint, heat,
                    latitude, longitude, address, district, street, city,
                    gmina, powiat, wojewodztwo,
+                   gmina_id, powiat_id, wojewodztwo_id,
                    upvotes, downvotes, comments_count, duplicate_count,
                    created_at, updated_at)
                 VALUES (?, ?, ?, 'NEW', ?, ?,
                         ?, ?, ?,
                         ?, ?, ?, ?, ?, ?,
+                        ?, ?, ?,
                         ?, ?, ?,
                         0, 0, 0, 1,
                         NOW(), NOW())
@@ -353,6 +363,9 @@ public class PulseFeedJdbcRepository {
                 ps.setString(15, gmina);
                 ps.setString(16, powiat);
                 ps.setString(17, wojewodztwo);
+                setNullableLongParam(ps, 18, gminaId);
+                setNullableLongParam(ps, 19, powiatId);
+                setNullableLongParam(ps, 20, wojewodztwoId);
                 ps.executeUpdate();
                 try (ResultSet keys = ps.getGeneratedKeys()) {
                     if (keys.next()) return keys.getLong(1);
@@ -428,6 +441,11 @@ public class PulseFeedJdbcRepository {
     private static void setNullableDouble(PreparedStatement ps, int index, Double value) throws SQLException {
         if (value != null) ps.setDouble(index, value);
         else ps.setNull(index, Types.DOUBLE);
+    }
+
+    private static void setNullableLongParam(PreparedStatement ps, int index, Long value) throws SQLException {
+        if (value != null) ps.setLong(index, value);
+        else ps.setNull(index, Types.BIGINT);
     }
 
     private List<Pulse> runPulseQuery(String sql, List<Object> params) {
@@ -519,6 +537,9 @@ public class PulseFeedJdbcRepository {
         p.setGmina(rs.getString("gmina"));
         p.setPowiat(rs.getString("powiat"));
         p.setWojewodztwo(rs.getString("wojewodztwo"));
+        p.setGminaId(getNullableLong(rs, "gmina_id"));
+        p.setPowiatId(getNullableLong(rs, "powiat_id"));
+        p.setWojewodztwoId(getNullableLong(rs, "wojewodztwo_id"));
         p.setHeat(rs.getString("heat"));
         p.setAiNote(rs.getString("ai_note"));
         p.setImageHint(rs.getString("image_hint"));

@@ -10,5 +10,7 @@ public interface WojewodztwoRepository extends JpaRepository<Wojewodztwo, Long> 
 
     Optional<Wojewodztwo> findByName(String name);
 
+    Optional<Wojewodztwo> findByNameIgnoreCase(String name);
+
     List<Wojewodztwo> findAllByOrderByNameAsc();
 }

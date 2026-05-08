@@ -407,10 +407,10 @@ public class PulseCommentService {
     private static void requireCommentInScope(Pulse pulse, String scopeColumn, Set<String> scopeValues) {
         if (scopeColumn == null || scopeValues == null || scopeValues.isEmpty()) return;
         String pulseVal = switch (scopeColumn) {
-            case "city"        -> pulse.getCity();
-            case "gmina"       -> pulse.getGmina();
-            case "powiat"      -> pulse.getPowiat();
-            case "wojewodztwo" -> pulse.getWojewodztwo();
+            case "city"           -> pulse.getCity();
+            case "gmina_id"       -> pulse.getGminaId()       != null ? pulse.getGminaId().toString()       : null;
+            case "powiat_id"      -> pulse.getPowiatId()      != null ? pulse.getPowiatId().toString()      : null;
+            case "wojewodztwo_id" -> pulse.getWojewodztwoId() != null ? pulse.getWojewodztwoId().toString() : null;
             default -> throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "Nieznana kolumna zakresu: " + scopeColumn);
         };

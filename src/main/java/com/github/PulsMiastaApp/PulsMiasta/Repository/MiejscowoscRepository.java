@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
 import java.util.List;
 
 public interface MiejscowoscRepository extends JpaRepository<Miejscowosc, Long> {
@@ -28,4 +29,13 @@ public interface MiejscowoscRepository extends JpaRepository<Miejscowosc, Long> 
             ORDER BY m.name
             """)
     List<Miejscowosc> searchByNameWithHierarchy(@Param("pattern") String pattern, Pageable pageable);
+
+    @Query("""
+            SELECT m FROM Miejscowosc m
+            JOIN FETCH m.gmina g
+            JOIN FETCH g.powiat p
+            JOIN FETCH p.wojewodztwo
+            WHERE m.id IN :ids
+            """)
+    List<Miejscowosc> findAllByIdInWithHierarchy(@Param("ids") Collection<Long> ids);
 }

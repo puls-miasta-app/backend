@@ -53,10 +53,10 @@ public interface CommentReportRepository extends JpaRepository<CommentReport, Lo
             LEFT JOIN FETCH r.reviewedBy
             WHERE (:status IS NULL OR r.status = :status)
               AND (:scopeColumn IS NULL OR
-                  (:scopeColumn = 'city'        AND p.city        IN :scopeValues) OR
-                  (:scopeColumn = 'gmina'       AND p.gmina       IN :scopeValues) OR
-                  (:scopeColumn = 'powiat'      AND p.powiat      IN :scopeValues) OR
-                  (:scopeColumn = 'wojewodztwo' AND p.wojewodztwo IN :scopeValues))
+                  (:scopeColumn = 'city'           AND p.city                         IN :scopeValues) OR
+                  (:scopeColumn = 'gmina_id'       AND CAST(p.gminaId AS String)       IN :scopeValues) OR
+                  (:scopeColumn = 'powiat_id'      AND CAST(p.powiatId AS String)      IN :scopeValues) OR
+                  (:scopeColumn = 'wojewodztwo_id' AND CAST(p.wojewodztwoId AS String) IN :scopeValues))
             ORDER BY r.createdAt DESC
             """,
             countQuery = """
@@ -65,10 +65,10 @@ public interface CommentReportRepository extends JpaRepository<CommentReport, Lo
             JOIN c.pulse p
             WHERE (:status IS NULL OR r.status = :status)
               AND (:scopeColumn IS NULL OR
-                  (:scopeColumn = 'city'        AND p.city        IN :scopeValues) OR
-                  (:scopeColumn = 'gmina'       AND p.gmina       IN :scopeValues) OR
-                  (:scopeColumn = 'powiat'      AND p.powiat      IN :scopeValues) OR
-                  (:scopeColumn = 'wojewodztwo' AND p.wojewodztwo IN :scopeValues))
+                  (:scopeColumn = 'city'           AND p.city                         IN :scopeValues) OR
+                  (:scopeColumn = 'gmina_id'       AND CAST(p.gminaId AS String)       IN :scopeValues) OR
+                  (:scopeColumn = 'powiat_id'      AND CAST(p.powiatId AS String)      IN :scopeValues) OR
+                  (:scopeColumn = 'wojewodztwo_id' AND CAST(p.wojewodztwoId AS String) IN :scopeValues))
             """)
     Page<CommentReport> findInScope(
             @Param("status") CommentReportStatus status,

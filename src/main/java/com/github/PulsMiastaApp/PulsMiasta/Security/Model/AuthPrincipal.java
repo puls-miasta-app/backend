@@ -17,8 +17,10 @@ import java.util.stream.Collectors;
 
 /**
  * Immutable principal stored in the SecurityContext.
- * Scope fields hold sets of names (lowercase, normalized) so a single admin
- * can manage multiple województwa/powiaty/gminy/miejscowości simultaneously.
+ * Scope fields hold entity IDs (not names) to avoid name-collision bugs
+ * (e.g. multiple gminas named "Lublin" in different powiats).
+ * ADMIN_MIASTA is the exception — it still compares against the free-text city column
+ * because Miejscowosc IDs are not stored on Pulse.
  */
 public record AuthPrincipal(
         Long id,
@@ -27,23 +29,22 @@ public record AuthPrincipal(
         String lastName,
         String role,
         boolean emailVerified,
-        Set<String> managedWojewodztwa,
-        Set<String> managedPowiaty,
-        Set<String> managedGminy,
+        Set<Long> managedWojewodztwaIds,
+        Set<Long> managedPowiatyIds,
+        Set<Long> managedGminyIds,
         Set<String> managedMiasta
 ) implements UserDetails {
 
     public static AuthPrincipal from(User user) {
-        // Non-admin users have no geo scope; skip lazy collection access entirely
         boolean admin = !UserRole.USER.name().equals(user.getRole());
-        Set<String> wojew = admin
-                ? user.getManagedWojewodztwa().stream().map(Wojewodztwo::getName).collect(Collectors.toUnmodifiableSet())
+        Set<Long> wojew = admin
+                ? user.getManagedWojewodztwa().stream().map(Wojewodztwo::getId).collect(Collectors.toUnmodifiableSet())
                 : Set.of();
-        Set<String> pow = admin
-                ? user.getManagedPowiaty().stream().map(Powiat::getName).collect(Collectors.toUnmodifiableSet())
+        Set<Long> pow = admin
+                ? user.getManagedPowiaty().stream().map(Powiat::getId).collect(Collectors.toUnmodifiableSet())
                 : Set.of();
-        Set<String> gm = admin
-                ? user.getManagedGminy().stream().map(Gmina::getName).collect(Collectors.toUnmodifiableSet())
+        Set<Long> gm = admin
+                ? user.getManagedGminy().stream().map(Gmina::getId).collect(Collectors.toUnmodifiableSet())
                 : Set.of();
         Set<String> miej = admin
                 ? user.getManagedMiasta().stream().map(Miejscowosc::getName).collect(Collectors.toUnmodifiableSet())
@@ -72,31 +73,39 @@ public record AuthPrincipal(
     }
 
     /**
-     * Kolumna w tabeli pulses odpowiadająca poziomowi admina.
-     * null = brak filtra (SUPER_ADMIN lub USER).
+     * Kolumna w tabeli pulses do filtrowania:
+     * gmina_id/powiat_id/wojewodztwo_id — porównanie po ID (bezpieczne).
+     * city — porównanie tekstowe (ADMIN_MIASTA).
+     * null — brak filtra (SUPER_ADMIN lub USER).
      */
     public String adminScopeColumn() {
         return switch (userRole()) {
             case ADMIN_MIASTA      -> "city";
-            case ADMIN_GMINY       -> "gmina";
-            case ADMIN_POWIATU     -> "powiat";
-            case ADMIN_WOJEWODZTWA -> "wojewodztwo";
+            case ADMIN_GMINY       -> "gmina_id";
+            case ADMIN_POWIATU     -> "powiat_id";
+            case ADMIN_WOJEWODZTWA -> "wojewodztwo_id";
             default                -> null;
         };
     }
 
     /**
-     * Zbiór wartości do filtrowania pulses wg zasięgu admina.
+     * Wartości do filtrowania:
+     * Dla ról ID-based (gminy/powiaty/woj) — string-reprezentacja ID, np. "123".
+     * Dla ADMIN_MIASTA — nazwy miejscowości.
      * Pusty zbiór = brak ograniczeń (SUPER_ADMIN lub USER).
      */
     public Set<String> adminScopeValues() {
         return switch (userRole()) {
             case ADMIN_MIASTA      -> managedMiasta;
-            case ADMIN_GMINY       -> managedGminy;
-            case ADMIN_POWIATU     -> managedPowiaty;
-            case ADMIN_WOJEWODZTWA -> managedWojewodztwa;
+            case ADMIN_GMINY       -> toStringSet(managedGminyIds);
+            case ADMIN_POWIATU     -> toStringSet(managedPowiatyIds);
+            case ADMIN_WOJEWODZTWA -> toStringSet(managedWojewodztwaIds);
             default                -> Set.of();
         };
+    }
+
+    private static Set<String> toStringSet(Set<Long> ids) {
+        return ids.stream().map(Object::toString).collect(Collectors.toUnmodifiableSet());
     }
 
     @Override

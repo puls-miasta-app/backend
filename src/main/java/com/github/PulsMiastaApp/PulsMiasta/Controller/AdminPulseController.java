@@ -127,11 +127,11 @@ public class AdminPulseController {
         Set<String> scopeValues = principal.adminScopeValues();
         if (scopeValues.isEmpty()) return;
         String pulseVal = switch (col) {
-            case "city"        -> pulse.getCity();
-            case "gmina"       -> pulse.getGmina();
-            case "powiat"      -> pulse.getPowiat();
-            case "wojewodztwo" -> pulse.getWojewodztwo();
-            default            -> null;
+            case "city"           -> pulse.getCity();
+            case "gmina_id"       -> pulse.getGminaId()       != null ? pulse.getGminaId().toString()       : null;
+            case "powiat_id"      -> pulse.getPowiatId()      != null ? pulse.getPowiatId().toString()      : null;
+            case "wojewodztwo_id" -> pulse.getWojewodztwoId() != null ? pulse.getWojewodztwoId().toString() : null;
+            default               -> null;
         };
         if (scopeValues.stream().noneMatch(v -> v.equalsIgnoreCase(pulseVal))) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Zgłoszenie nie jest w zarządzanym przez Ciebie obszarze");

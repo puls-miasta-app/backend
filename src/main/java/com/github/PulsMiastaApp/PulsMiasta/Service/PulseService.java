@@ -11,11 +11,14 @@ import com.github.PulsMiastaApp.PulsMiasta.Model.Enums.PulseCategory;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Enums.PulsePriority;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Enums.PulseStatus;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Enums.VoteDirection;
+import com.github.PulsMiastaApp.PulsMiasta.Repository.GminaRepository;
+import com.github.PulsMiastaApp.PulsMiasta.Repository.PowiatRepository;
 import com.github.PulsMiastaApp.PulsMiasta.Repository.PulseFeedJdbcRepository;
 import com.github.PulsMiastaApp.PulsMiasta.Repository.PulsePhotoRepository;
 import com.github.PulsMiastaApp.PulsMiasta.Repository.PulseRepository;
 import com.github.PulsMiastaApp.PulsMiasta.Repository.PulseVoteRepository;
 import com.github.PulsMiastaApp.PulsMiasta.Repository.UserRepository;
+import com.github.PulsMiastaApp.PulsMiasta.Repository.WojewodztwoRepository;
 import com.github.PulsMiastaApp.PulsMiasta.Storage.PhotoStorageService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -48,6 +51,9 @@ public class PulseService {
     private final PulseAiAnalysisService pulseAiAnalysisService;
     private final ReverseGeocodingService reverseGeocodingService;
     private final PushNotificationService pushNotificationService;
+    private final WojewodztwoRepository wojRepository;
+    private final PowiatRepository powiatRepository;
+    private final GminaRepository gminaRepository;
 
     private Pulse buildPulse(User user,
                              PulseCategory category,
@@ -152,23 +158,57 @@ public class PulseService {
             String powiat     = blank(pulse.getPowiat())      ? addr.powiat()           : pulse.getPowiat();
             String woj        = blank(pulse.getWojewodztwo()) ? addr.wojewodztwo()      : pulse.getWojewodztwo();
 
+            GeoIds geoIds = resolveGeoIds(addr);
+            Long gminaId   = pulse.getGminaId()       != null ? pulse.getGminaId()       : geoIds.gminaId();
+            Long powiatId  = pulse.getPowiatId()       != null ? pulse.getPowiatId()      : geoIds.powiatId();
+            Long wojId     = pulse.getWojewodztwoId()  != null ? pulse.getWojewodztwoId() : geoIds.wojId();
+
             boolean changed = !java.util.Objects.equals(district, pulse.getDistrict())
                     || !java.util.Objects.equals(street,   pulse.getStreet())
                     || !java.util.Objects.equals(city,     pulse.getCity())
                     || !java.util.Objects.equals(address,  pulse.getAddress())
                     || !java.util.Objects.equals(gmina,    pulse.getGmina())
                     || !java.util.Objects.equals(powiat,   pulse.getPowiat())
-                    || !java.util.Objects.equals(woj,      pulse.getWojewodztwo());
+                    || !java.util.Objects.equals(woj,      pulse.getWojewodztwo())
+                    || !java.util.Objects.equals(gminaId,  pulse.getGminaId())
+                    || !java.util.Objects.equals(powiatId, pulse.getPowiatId())
+                    || !java.util.Objects.equals(wojId,    pulse.getWojewodztwoId());
 
             if (changed) {
                 pulseFeedJdbcRepository.updateLocation(pulseId, district, street, city, address,
-                        gmina, powiat, woj);
-                log.info("Enriched pulse {} with city='{}', gmina='{}', powiat='{}', woj='{}'",
-                        pulseId, city, gmina, powiat, woj);
+                        gmina, powiat, woj, gminaId, powiatId, wojId);
+                log.info("Enriched pulse {} with city='{}', gmina='{}' (id={}), powiat='{}' (id={}), woj='{}' (id={})",
+                        pulseId, city, gmina, gminaId, powiat, powiatId, woj, wojId);
             }
         } catch (Exception e) {
             log.warn("enrichLocationAsync failed for pulse {}: {}", pulseId, e.getMessage());
         }
+    }
+
+    private record GeoIds(Long gminaId, Long powiatId, Long wojId) {}
+
+    /**
+     * Rozwiązuje FK ID dla gminy/powiatu/województwa na podstawie znormalizowanych nazw
+     * z reverse geocodingu. Przy kolizji nazw (dwie gminy o tej samej nazwie w powiecie)
+     * zwraca null — bezpieczne false-negative zamiast false-positive.
+     */
+    private GeoIds resolveGeoIds(ReverseGeocodingService.GeocodedAddress addr) {
+        if (addr.wojewodztwo() == null) return new GeoIds(null, null, null);
+
+        var wojOpt = wojRepository.findByNameIgnoreCase(addr.wojewodztwo());
+        if (wojOpt.isEmpty()) return new GeoIds(null, null, null);
+        Long wojId = wojOpt.get().getId();
+
+        if (addr.powiat() == null) return new GeoIds(null, null, wojId);
+        var powOpt = powiatRepository.findByNameIgnoreCaseAndWojewodztwoId(addr.powiat(), wojId);
+        if (powOpt.isEmpty()) return new GeoIds(null, null, wojId);
+        Long powiatId = powOpt.get().getId();
+
+        if (addr.gmina() == null) return new GeoIds(null, powiatId, wojId);
+        var gminy = gminaRepository.findByNameIgnoreCaseAndPowiatId(addr.gmina(), powiatId);
+        // Przy wielu wynikach (różne typy gminy) nie przypisujemy ID — false-negative zamiast false-positive
+        Long gminaId = gminy.size() == 1 ? gminy.get(0).getId() : null;
+        return new GeoIds(gminaId, powiatId, wojId);
     }
 
     private static boolean blank(String s) {

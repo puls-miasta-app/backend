@@ -164,14 +164,20 @@ public class AdminUserService {
 
         switch (targetRole) {
             case ADMIN_MIASTA -> {
-                requireIds(wojIds, "managedWojewodztwoIds");
-                requireIds(powIds, "managedPowiatIds");
-                requireIds(gmIds, "managedGminaIds");
                 requireIds(miejIds, "managedMiastoIds");
-                wojew = resolveAll(wojIds, wojRepository, "Województwo");
-                pow   = resolveAll(powIds, powiatRepository, "Powiat");
-                gm    = resolveAll(gmIds, gminaRepository, "Gmina");
-                miej  = resolveAll(miejIds, miejscowoscRepository, "Miejscowość");
+                // Hierarchia (gmina → powiat → woj) jest pochodna miejscowości — nie wymaga jawnych ID
+                Set<Long> distinctMiejIds = new HashSet<>(miejIds);
+                List<Miejscowosc> withHierarchy = miejscowoscRepository.findAllByIdInWithHierarchy(distinctMiejIds);
+                if (withHierarchy.size() != distinctMiejIds.size()) {
+                    throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                            "Miejscowość — podano nieistniejące ID");
+                }
+                miej = new HashSet<>(withHierarchy);
+                for (var m : withHierarchy) {
+                    gm.add(m.getGmina());
+                    pow.add(m.getGmina().getPowiat());
+                    wojew.add(m.getGmina().getPowiat().getWojewodztwo());
+                }
             }
             case ADMIN_GMINY -> {
                 requireIds(wojIds, "managedWojewodztwoIds");

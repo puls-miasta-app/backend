@@ -37,33 +37,33 @@ public class GeoController {
     @GetMapping("/powiaty")
     public ResponseEntity<SuccessResponse<List<PowiatResponse>>> getPowiaty(
             @RequestParam Long wojewodztwoId) {
-        if (!wojRepository.existsById(wojewodztwoId)) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Województwo nie znalezione");
-        }
         List<PowiatResponse> list = powiatRepository.findByWojewodztwoIdOrderByName(wojewodztwoId)
                 .stream().map(PowiatResponse::from).toList();
+        if (list.isEmpty() && !wojRepository.existsById(wojewodztwoId)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Województwo nie znalezione");
+        }
         return ResponseEntity.ok(SuccessResponse.of(list));
     }
 
     @GetMapping("/gminy")
     public ResponseEntity<SuccessResponse<List<GminaResponse>>> getGminy(
             @RequestParam Long powiatId) {
-        if (!powiatRepository.existsById(powiatId)) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Powiat nie znaleziony");
-        }
         List<GminaResponse> list = gminaRepository.findByPowiatIdOrderByNameAscTypeAsc(powiatId)
                 .stream().map(g -> GminaResponse.from(g, powiatId)).toList();
+        if (list.isEmpty() && !powiatRepository.existsById(powiatId)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Powiat nie znaleziony");
+        }
         return ResponseEntity.ok(SuccessResponse.of(list));
     }
 
     @GetMapping("/miejscowosci")
     public ResponseEntity<SuccessResponse<List<MiejscowoscResponse>>> getMiejscowosci(
             @RequestParam Long gminaId) {
-        if (!gminaRepository.existsById(gminaId)) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Gmina nie znaleziona");
-        }
         List<MiejscowoscResponse> list = miejscowoscRepository.findByGminaIdOrderByName(gminaId)
                 .stream().map(m -> MiejscowoscResponse.from(m, gminaId)).toList();
+        if (list.isEmpty() && !gminaRepository.existsById(gminaId)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Gmina nie znaleziona");
+        }
         return ResponseEntity.ok(SuccessResponse.of(list));
     }
 
