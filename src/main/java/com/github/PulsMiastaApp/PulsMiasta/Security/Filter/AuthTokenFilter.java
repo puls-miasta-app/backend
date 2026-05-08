@@ -1,5 +1,7 @@
 package com.github.PulsMiastaApp.PulsMiasta.Security.Filter;
 
+import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.User;
+import com.github.PulsMiastaApp.PulsMiasta.Model.Enums.UserRole;
 import com.github.PulsMiastaApp.PulsMiasta.Repository.UserRepository;
 import com.github.PulsMiastaApp.PulsMiasta.Security.Model.AuthPrincipal;
 import com.github.PulsMiastaApp.PulsMiasta.Security.Service.AuthResult;
@@ -70,8 +72,13 @@ public class AuthTokenFilter extends OncePerRequestFilter {
             }
         }
 
-        // 3. Resolve userId → User (with geo JOIN FETCH) → AuthPrincipal → SecurityContext
-        userId.flatMap(userRepository::findByIdWithGeo)
+        // 3. Resolve userId → User → AuthPrincipal → SecurityContext
+        // Use plain findById for regular users (no JOIN FETCH overhead); only admins get
+        // the geo JOIN FETCH query because AuthPrincipal.from() accesses geo collections.
+        userId.flatMap(id -> userRepository.findById(id).map(basic ->
+                UserRole.USER.name().equals(basic.getRole())
+                        ? basic
+                        : userRepository.findByIdWithGeo(id).orElse(basic)))
                 .map(AuthPrincipal::from)
                 .ifPresent(principal -> {
                     UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(

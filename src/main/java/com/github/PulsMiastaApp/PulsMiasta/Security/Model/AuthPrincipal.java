@@ -34,14 +34,20 @@ public record AuthPrincipal(
 ) implements UserDetails {
 
     public static AuthPrincipal from(User user) {
-        Set<String> wojew = user.getManagedWojewodztwa().stream()
-                .map(Wojewodztwo::getName).collect(Collectors.toUnmodifiableSet());
-        Set<String> pow = user.getManagedPowiaty().stream()
-                .map(Powiat::getName).collect(Collectors.toUnmodifiableSet());
-        Set<String> gm = user.getManagedGminy().stream()
-                .map(Gmina::getName).collect(Collectors.toUnmodifiableSet());
-        Set<String> miej = user.getManagedMiasta().stream()
-                .map(Miejscowosc::getName).collect(Collectors.toUnmodifiableSet());
+        // Non-admin users have no geo scope; skip lazy collection access entirely
+        boolean admin = !UserRole.USER.name().equals(user.getRole());
+        Set<String> wojew = admin
+                ? user.getManagedWojewodztwa().stream().map(Wojewodztwo::getName).collect(Collectors.toUnmodifiableSet())
+                : Set.of();
+        Set<String> pow = admin
+                ? user.getManagedPowiaty().stream().map(Powiat::getName).collect(Collectors.toUnmodifiableSet())
+                : Set.of();
+        Set<String> gm = admin
+                ? user.getManagedGminy().stream().map(Gmina::getName).collect(Collectors.toUnmodifiableSet())
+                : Set.of();
+        Set<String> miej = admin
+                ? user.getManagedMiasta().stream().map(Miejscowosc::getName).collect(Collectors.toUnmodifiableSet())
+                : Set.of();
         return new AuthPrincipal(
                 user.getId(),
                 user.getEmail(),

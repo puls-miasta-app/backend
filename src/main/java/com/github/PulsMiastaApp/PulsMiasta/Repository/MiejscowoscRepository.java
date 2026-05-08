@@ -13,6 +13,8 @@ public interface MiejscowoscRepository extends JpaRepository<Miejscowosc, Long> 
 
     List<Miejscowosc> findByGminaOrderByName(Gmina gmina);
 
+    List<Miejscowosc> findByGminaIdOrderByName(Long gminaId);
+
     /**
      * Fetch-join całej hierarchii. Przyjmuje gotowy pattern (np. "%warszawa%")
      * z już escaped wildcards (\%, \_) przy użyciu ESCAPE '\'.

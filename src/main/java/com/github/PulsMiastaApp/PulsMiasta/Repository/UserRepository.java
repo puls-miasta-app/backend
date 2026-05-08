@@ -30,6 +30,18 @@ public interface UserRepository extends JpaRepository<User, Long> {
     @Query("SELECT DISTINCT u FROM User u WHERE u.role IN :roles ORDER BY u.id")
     List<User> findAllAdmins(@Param("roles") List<String> roles);
 
+    /** Ładuje wielu użytkowników z pełnym JOIN FETCH geo — używane do eliminacji N+1 przy listowaniu adminów. */
+    @Query("""
+            SELECT DISTINCT u FROM User u
+            LEFT JOIN FETCH u.managedWojewodztwa
+            LEFT JOIN FETCH u.managedPowiaty
+            LEFT JOIN FETCH u.managedGminy
+            LEFT JOIN FETCH u.managedMiasta
+            WHERE u.id IN :ids
+            ORDER BY u.id
+            """)
+    List<User> findByIdsWithGeo(@Param("ids") Collection<Long> ids);
+
     /** Admini których zasięg województw PRZECINA się z podanym zbiorem (filtr po ID). */
     @Query("SELECT DISTINCT u FROM User u JOIN u.managedWojewodztwa w WHERE u.role IN :roles AND w.id IN :wojIds ORDER BY u.id")
     List<User> findAdminsByWojewodztwaIds(@Param("roles") List<String> roles, @Param("wojIds") Collection<Long> wojIds);

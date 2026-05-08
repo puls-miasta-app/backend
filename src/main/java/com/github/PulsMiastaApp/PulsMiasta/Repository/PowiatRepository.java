@@ -11,5 +11,7 @@ public interface PowiatRepository extends JpaRepository<Powiat, Long> {
 
     List<Powiat> findByWojewodztwoOrderByName(Wojewodztwo wojewodztwo);
 
+    List<Powiat> findByWojewodztwoIdOrderByName(Long wojewodztwoId);
+
     Optional<Powiat> findByNameAndWojewodztwo(String name, Wojewodztwo wojewodztwo);
 }
