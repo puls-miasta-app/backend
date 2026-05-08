@@ -1,5 +1,6 @@
 package com.github.PulsMiastaApp.PulsMiasta.Service;
 
+import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.AdminUserResponse;
 import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.CreateAdminRequest;
 import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.UpdateAdminRequest;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.*;
@@ -70,21 +71,26 @@ public class AdminUserService {
     }
 
     @Transactional(readOnly = true)
-    public List<User> listAdminsInScope(Long callerId) {
-        User caller = userRepository.findById(callerId)
+    public List<AdminUserResponse> listAdminsInScope(Long callerId) {
+        User caller = userRepository.findByIdWithGeo(callerId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Caller not found"));
         UserRole callerRole = parseRole(caller.getRole());
 
-        return switch (callerRole) {
+        List<User> users = switch (callerRole) {
             case SUPER_ADMIN -> userRepository.findAllAdmins(ALL_ADMIN_ROLES);
-            case ADMIN_WOJEWODZTWA -> userRepository.findAdminsByWojewodztwa(
-                    ALL_ADMIN_ROLES, namesOf(caller.getManagedWojewodztwa()));
-            case ADMIN_POWIATU -> userRepository.findAdminsByPowiaty(
-                    ALL_ADMIN_ROLES, namesOfPow(caller.getManagedPowiaty()));
-            case ADMIN_GMINY -> userRepository.findAdminsByGminy(
-                    ALL_ADMIN_ROLES, namesOfGm(caller.getManagedGminy()));
+            case ADMIN_WOJEWODZTWA -> userRepository.findAdminsByWojewodztwaIds(
+                    ALL_ADMIN_ROLES,
+                    caller.getManagedWojewodztwa().stream().map(Wojewodztwo::getId).toList());
+            case ADMIN_POWIATU -> userRepository.findAdminsByPowiatyIds(
+                    ALL_ADMIN_ROLES,
+                    caller.getManagedPowiaty().stream().map(Powiat::getId).toList());
+            case ADMIN_GMINY -> userRepository.findAdminsByGminyIds(
+                    ALL_ADMIN_ROLES,
+                    caller.getManagedGminy().stream().map(Gmina::getId).toList());
             default -> throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Brak uprawnień");
         };
+        // Map to DTO within the transaction — initialises lazy geo collections safely
+        return users.stream().map(AdminUserResponse::from).toList();
     }
 
     @Transactional
@@ -287,20 +293,6 @@ public class AdminUserService {
                         "ID " + id + " w polu " + field + " wykracza poza Twój zasięg");
             }
         }
-    }
-
-    // ---------- name helpers ----------
-
-    static Set<String> namesOf(Collection<Wojewodztwo> items) {
-        return items.stream().map(Wojewodztwo::getName).collect(Collectors.toSet());
-    }
-
-    static Set<String> namesOfPow(Collection<Powiat> items) {
-        return items.stream().map(Powiat::getName).collect(Collectors.toSet());
-    }
-
-    static Set<String> namesOfGm(Collection<Gmina> items) {
-        return items.stream().map(Gmina::getName).collect(Collectors.toSet());
     }
 
     // ---------- helpers ----------

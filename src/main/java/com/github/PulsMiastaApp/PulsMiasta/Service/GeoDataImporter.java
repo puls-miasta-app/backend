@@ -10,11 +10,14 @@ import com.github.PulsMiastaApp.PulsMiasta.Repository.PowiatRepository;
 import com.github.PulsMiastaApp.PulsMiasta.Repository.WojewodztwoRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.*;
 
@@ -32,7 +35,11 @@ public class GeoDataImporter implements ApplicationRunner {
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper;
 
+    @PersistenceContext
+    private EntityManager em;
+
     @Override
+    @Transactional
     public void run(ApplicationArguments args) throws Exception {
         if (wojRepository.count() > 0) {
             log.debug("Dane geograficzne już zaimportowane, pomijam.");
@@ -45,7 +52,7 @@ public class GeoDataImporter implements ApplicationRunner {
                 new ClassPathResource(GEO_JSON).getInputStream(),
                 new TypeReference<>() {});
 
-        // --- Województwa (16) — each save() runs in its own transaction ---
+        // --- Województwa (16) ---
         Map<String, Long> wojIdByName = new LinkedHashMap<>();
         for (Map<String, Object> e : entries) {
             String name = (String) e.get("voivodeship");
@@ -53,6 +60,8 @@ public class GeoDataImporter implements ApplicationRunner {
                 wojIdByName.put(name, wojRepository.save(new Wojewodztwo(name)).getId());
             }
         }
+        em.flush();
+        em.clear();
         log.info("Zaimportowano {} województw", wojIdByName.size());
 
         // --- Powiaty (370) ---
@@ -67,6 +76,8 @@ public class GeoDataImporter implements ApplicationRunner {
                 powIdByKey.put(key, powiatRepository.save(new Powiat(powName, wojRef)).getId());
             }
         }
+        em.flush();
+        em.clear();
         log.info("Zaimportowano {} powiatów", powIdByKey.size());
 
         // --- Gminy (2479) ---
@@ -83,6 +94,8 @@ public class GeoDataImporter implements ApplicationRunner {
                 gminaIdByKey.put(key, gminaRepository.save(new Gmina(gmName, gmType, powRef)).getId());
             }
         }
+        em.flush();
+        em.clear();
         log.info("Zaimportowano {} gmin", gminaIdByKey.size());
 
         // --- Miejscowości (101K) — JDBC batch ---

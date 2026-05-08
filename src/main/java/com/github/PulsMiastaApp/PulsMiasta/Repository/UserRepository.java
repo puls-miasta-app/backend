@@ -30,15 +30,15 @@ public interface UserRepository extends JpaRepository<User, Long> {
     @Query("SELECT DISTINCT u FROM User u WHERE u.role IN :roles ORDER BY u.id")
     List<User> findAllAdmins(@Param("roles") List<String> roles);
 
-    /** Admini których zasięg województw PRZECINA się z podanym zbiorem. */
-    @Query("SELECT DISTINCT u FROM User u JOIN u.managedWojewodztwa w WHERE u.role IN :roles AND w.name IN :wojNames ORDER BY u.id")
-    List<User> findAdminsByWojewodztwa(@Param("roles") List<String> roles, @Param("wojNames") Collection<String> wojNames);
+    /** Admini których zasięg województw PRZECINA się z podanym zbiorem (filtr po ID). */
+    @Query("SELECT DISTINCT u FROM User u JOIN u.managedWojewodztwa w WHERE u.role IN :roles AND w.id IN :wojIds ORDER BY u.id")
+    List<User> findAdminsByWojewodztwaIds(@Param("roles") List<String> roles, @Param("wojIds") Collection<Long> wojIds);
 
-    /** Admini których zasięg powiatów PRZECINA się z podanym zbiorem. */
-    @Query("SELECT DISTINCT u FROM User u JOIN u.managedPowiaty p WHERE u.role IN :roles AND p.name IN :powNames ORDER BY u.id")
-    List<User> findAdminsByPowiaty(@Param("roles") List<String> roles, @Param("powNames") Collection<String> powNames);
+    /** Admini których zasięg powiatów PRZECINA się z podanym zbiorem (filtr po ID). */
+    @Query("SELECT DISTINCT u FROM User u JOIN u.managedPowiaty p WHERE u.role IN :roles AND p.id IN :powIds ORDER BY u.id")
+    List<User> findAdminsByPowiatyIds(@Param("roles") List<String> roles, @Param("powIds") Collection<Long> powIds);
 
-    /** Admini których zasięg gmin PRZECINA się z podanym zbiorem. */
-    @Query("SELECT DISTINCT u FROM User u JOIN u.managedGminy g WHERE u.role IN :roles AND g.name IN :gmNames ORDER BY u.id")
-    List<User> findAdminsByGminy(@Param("roles") List<String> roles, @Param("gmNames") Collection<String> gmNames);
+    /** Admini których zasięg gmin PRZECINA się z podanym zbiorem (filtr po ID). */
+    @Query("SELECT DISTINCT u FROM User u JOIN u.managedGminy g WHERE u.role IN :roles AND g.id IN :gmIds ORDER BY u.id")
+    List<User> findAdminsByGminyIds(@Param("roles") List<String> roles, @Param("gmIds") Collection<Long> gmIds);
 }
