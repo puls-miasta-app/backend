@@ -1,13 +1,13 @@
 package com.github.PulsMiastaApp.PulsMiasta.Service;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.Gmina;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.Powiat;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.Wojewodztwo;
 import com.github.PulsMiastaApp.PulsMiasta.Repository.GminaRepository;
 import com.github.PulsMiastaApp.PulsMiasta.Repository.PowiatRepository;
 import com.github.PulsMiastaApp.PulsMiasta.Repository.WojewodztwoRepository;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import jakarta.persistence.EntityManager;
