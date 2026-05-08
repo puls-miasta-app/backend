@@ -104,7 +104,7 @@ public class PasskeyController {
         String sessionKey = UUID.randomUUID().toString();
 
         var user = userRepository.findById(principal.id())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User not found"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Użytkownik nie znaleziony"));
 
         RegistrationBeginResponse options = webAuthnService.beginRegistration(user, sessionKey);
         return ResponseEntity.ok(SuccessResponse.of(options));
@@ -130,7 +130,7 @@ public class PasskeyController {
         requireAuthenticated(principal);
 
         var user = userRepository.findById(principal.id())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User not found"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Użytkownik nie znaleziony"));
 
         webAuthnService.finishRegistration(user, request);
         return ResponseEntity.status(HttpStatus.CREATED)
@@ -236,7 +236,7 @@ public class PasskeyController {
 
     private void requireAuthenticated(AuthPrincipal principal) {
         if (principal == null) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication required");
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Wymagane uwierzytelnienie");
         }
     }
 }

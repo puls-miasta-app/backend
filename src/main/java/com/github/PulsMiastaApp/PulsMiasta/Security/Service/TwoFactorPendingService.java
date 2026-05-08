@@ -71,7 +71,7 @@ public class TwoFactorPendingService {
     public Long validatePendingToken(String token) {
         String userIdStr = redisTemplate.opsForValue().get(PREFIX + token);
         if (userIdStr == null) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid or expired 2FA session");
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Nieprawidłowa lub wygasła sesja 2FA");
         }
         return Long.valueOf(userIdStr);
     }
@@ -86,7 +86,7 @@ public class TwoFactorPendingService {
     public List<String> getAvailableMethods(String token) {
         String methods = redisTemplate.opsForValue().get(METHODS_PREFIX + token);
         if (methods == null) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid or expired 2FA session");
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Nieprawidłowa lub wygasła sesja 2FA");
         }
         return Arrays.asList(methods.split(","));
     }
@@ -103,7 +103,7 @@ public class TwoFactorPendingService {
         String userIdStr = redisTemplate.opsForValue().getAndDelete(PREFIX + token);
         redisTemplate.delete(METHODS_PREFIX + token);
         if (userIdStr == null) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid or expired 2FA session");
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Nieprawidłowa lub wygasła sesja 2FA");
         }
         return Long.valueOf(userIdStr);
     }
