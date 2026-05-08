@@ -1,7 +1,6 @@
 package com.github.PulsMiastaApp.PulsMiasta.Security.Config;
 
 import com.github.PulsMiastaApp.PulsMiasta.Security.Filter.AuthTokenFilter;
-import com.github.PulsMiastaApp.PulsMiasta.Security.Filter.SudoModeFilter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -25,7 +24,6 @@ import java.util.List;
 public class SecurityConfig {
 
     private final AuthTokenFilter authTokenFilter;
-    private final SudoModeFilter sudoModeFilter;
 
     /**
      * Allowed origins for CORS — loaded from {@code cors.allowed-origins} in application.properties.
@@ -34,9 +32,8 @@ public class SecurityConfig {
     @Value("${cors.allowed-origins}")
     private List<String> corsAllowedOrigins;
 
-    public SecurityConfig(AuthTokenFilter authTokenFilter, SudoModeFilter sudoModeFilter) {
+    public SecurityConfig(AuthTokenFilter authTokenFilter) {
         this.authTokenFilter = authTokenFilter;
-        this.sudoModeFilter = sudoModeFilter;
     }
 
     @Bean
@@ -81,8 +78,7 @@ public class SecurityConfig {
                         )
                         .anyRequest().authenticated()
                 )
-                .addFilterBefore(authTokenFilter, UsernamePasswordAuthenticationFilter.class)
-                .addFilterAfter(sudoModeFilter, AuthTokenFilter.class);
+                .addFilterBefore(authTokenFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
     }

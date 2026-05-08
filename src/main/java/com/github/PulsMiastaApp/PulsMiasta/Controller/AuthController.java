@@ -32,6 +32,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -107,16 +108,17 @@ public class AuthController {
 
     /**
      * First step of login: verify email + password.
-     * <p>
-     * <b>200 OK</b> — no 2FA configured; session cookies are set immediately.<br>
-     * <b>202 Accepted</b> — TOTP required; response body contains {@code pendingToken}.
-     * Submit that token + TOTP code to {@code POST /login/totp} to complete login.
+     *
+     * <b>200 OK</b> — no 2FA configured; session cookies set immediately; sudo mode auto-activated.<br>
+     * <b>202 Accepted</b> — 2FA required; response contains {@code pendingToken}.
+     * Submit that token to the relevant step-2 endpoint to complete login.
+     * Sudo mode is auto-activated on step-2 completion.
      */
     @PostMapping("/login")
     @ApiResponses({
             @ApiResponse(responseCode = "200", content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
                     schema = @Schema(implementation = LoginSuccessResponse.class))),
-            @ApiResponse(responseCode = "202", description = "TOTP required — see pendingToken in response body"),
+            @ApiResponse(responseCode = "202", description = "2FA required — see pendingToken and availableMethods in response body"),
             @ApiResponse(responseCode = "401", content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
                     schema = @Schema(implementation = ErrorResponse.class))),
             @ApiResponse(responseCode = "429", description = "Rate limit exceeded")
@@ -137,6 +139,8 @@ public class AuthController {
                         new AuthResult(granted.sessionToken(), granted.rememberMeToken()),
                         request.rememberMe(), request.clientType() == ClientType.MOBILE,
                         sessionTtlMinutes, rememberMeWebDays, rememberMeMobileDays);
+                // Auto-activate sudo mode immediately after login (no 2FA path)
+                sudoModeService.activateSudoMode(granted.sessionToken());
                 yield ResponseEntity.ok(SuccessResponse.of(
                         new LoginSuccessResponse(granted.mustChangePassword(), granted.mustSetup2FA())));
             }
@@ -150,12 +154,6 @@ public class AuthController {
     // Login (step 2 — TOTP)
     // =========================================================================
 
-    /**
-     * Second step of login for accounts with TOTP enabled.
-     * <p>
-     * Consumes the {@code pendingToken} from the first step and verifies the TOTP code.
-     * On success sets session cookies identically to a normal login.
-     */
     @PostMapping("/login/totp")
     @Operation(summary = "Complete login with TOTP code (step 2 after 202 from /login)")
     public ResponseEntity<SuccessResponse<String>> loginTotp(
@@ -179,6 +177,7 @@ public class AuthController {
         AuthTokenFilter.applyAuthCookies(response, result, request.rememberMe(),
                 request.clientType() == ClientType.MOBILE,
                 sessionTtlMinutes, rememberMeWebDays, rememberMeMobileDays);
+        sudoModeService.activateSudoMode(result.sessionToken());
 
         return ResponseEntity.ok(SuccessResponse.of("Logged in successfully"));
     }
@@ -187,10 +186,6 @@ public class AuthController {
     // Login (step 2 — Email OTP)
     // =========================================================================
 
-    /**
-     * Sends a 6-digit OTP code to the user's email address.
-     * Requires a valid {@code pendingToken} from step 1 (non-consuming).
-     */
     @PostMapping("/login/otp/send")
     @Operation(summary = "Send email OTP for login 2FA (step 2 after 202 from /login)")
     public ResponseEntity<SuccessResponse<String>> loginOtpSend(
@@ -207,10 +202,6 @@ public class AuthController {
         return ResponseEntity.ok(SuccessResponse.of("Verification code sent to " + user.getEmail()));
     }
 
-    /**
-     * Verifies the 6-digit OTP code and completes login.
-     * Consumes the {@code pendingToken} on success.
-     */
     @PostMapping("/login/otp/verify")
     @Operation(summary = "Verify email OTP and complete login (step 2 after 202 from /login)")
     public ResponseEntity<SuccessResponse<String>> loginOtpVerify(
@@ -230,6 +221,7 @@ public class AuthController {
         AuthTokenFilter.applyAuthCookies(response, result, request.rememberMe(),
                 request.clientType() == ClientType.MOBILE,
                 sessionTtlMinutes, rememberMeWebDays, rememberMeMobileDays);
+        sudoModeService.activateSudoMode(result.sessionToken());
 
         return ResponseEntity.ok(SuccessResponse.of("Logged in successfully"));
     }
@@ -238,10 +230,6 @@ public class AuthController {
     // Login (step 2 — Passkey)
     // =========================================================================
 
-    /**
-     * Begins a passkey authentication ceremony scoped to the user from the pending token.
-     * Requires a valid {@code pendingToken} from step 1 (non-consuming).
-     */
     @PostMapping("/login/passkey/begin")
     @Operation(summary = "Begin passkey verification for login 2FA (step 2 after 202 from /login)")
     public ResponseEntity<SuccessResponse<AuthenticationBeginResponse>> loginPasskeyBegin(
@@ -258,10 +246,6 @@ public class AuthController {
         return ResponseEntity.ok(SuccessResponse.of(options));
     }
 
-    /**
-     * Completes the passkey authentication ceremony and logs in the user.
-     * Consumes the {@code pendingToken} on success.
-     */
     @PostMapping("/login/passkey/finish")
     @Operation(summary = "Complete passkey verification and login (step 2 after 202 from /login)")
     public ResponseEntity<SuccessResponse<String>> loginPasskeyFinish(
@@ -286,6 +270,7 @@ public class AuthController {
         AuthTokenFilter.applyAuthCookies(response, result, request.rememberMe(),
                 request.clientType() == ClientType.MOBILE,
                 sessionTtlMinutes, rememberMeWebDays, rememberMeMobileDays);
+        sudoModeService.activateSudoMode(result.sessionToken());
 
         return ResponseEntity.ok(SuccessResponse.of("Logged in successfully"));
     }
@@ -306,6 +291,9 @@ public class AuthController {
         String sessionToken = AuthTokenFilter.extractCookie(request, AuthTokenFilter.SESSION_COOKIE_NAME).orElse(null);
         String rememberMeToken = AuthTokenFilter.extractCookie(request, AuthTokenFilter.REMEMBER_ME_COOKIE_NAME).orElse(null);
 
+        if (sessionToken != null) {
+            sudoModeService.deactivateSudoMode(sessionToken);
+        }
         authService.logout(sessionToken, rememberMeToken);
 
         AuthTokenFilter.clearCookie(response, AuthTokenFilter.SESSION_COOKIE_NAME);
@@ -342,9 +330,6 @@ public class AuthController {
     // 2FA methods
     // =========================================================================
 
-    /**
-     * Returns the 2FA methods that are currently active for the authenticated user.
-     */
     @GetMapping("/2fa/methods")
     @Operation(summary = "Get active 2FA methods for the authenticated user")
     @Tag(name = "Authentication")
@@ -359,11 +344,6 @@ public class AuthController {
                         user.getTwoFactorDefaultMethod())));
     }
 
-    /**
-     * Ustawia domyślną metodę 2FA — wyświetlaną jako pierwsza podczas logowania.
-     * Podana metoda musi być aktualnie włączona na koncie użytkownika.
-     * Wymaga sudo mode — zmiana konfiguracji bezpieczeństwa konta jest akcją krytyczną.
-     */
     @PutMapping("/2fa/default")
     @RequireSudoMode
     @Operation(summary = "Set the preferred default 2FA method for login (requires sudo mode)")
@@ -380,32 +360,61 @@ public class AuthController {
     }
 
     // =========================================================================
-    // Sudo Mode — Passkey
+    // Sudo Mode — status & available methods
     // =========================================================================
 
     /**
-     * Checks if the current user has active sudo mode.
+     * Returns sudo mode status for the current session.
+     * Includes remaining TTL (in seconds) while active.
      */
     @GetMapping("/sudo/status")
-    @Operation(summary = "Check if sudo mode is active")
-    @Tag(name = "Authentication")
+    @Operation(
+            summary = "Get sudo mode status",
+            description = "Returns whether sudo mode is currently active and, if so, how many seconds remain. " +
+                    "Sudo mode is automatically activated after successful login and expires after " +
+                    "${auth.sudo.ttl-minutes} minutes of inactivity. It must be re-activated before " +
+                    "performing any sensitive account operation.")
+    @Tag(name = "Sudo Mode")
     public ResponseEntity<SuccessResponse<SudoStatusResponse>> sudoStatus(
             HttpServletRequest request) {
 
         String sessionToken = AuthTokenFilter.extractCookie(request, AuthTokenFilter.SESSION_COOKIE_NAME)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication required"));
 
-        boolean isActive = sudoModeService.isSudoModeActive(sessionToken);
-        return ResponseEntity.ok(SuccessResponse.of(new SudoStatusResponse(isActive)));
+        SudoModeService.SudoStatus status = sudoModeService.getStatus(sessionToken);
+        return ResponseEntity.ok(SuccessResponse.of(new SudoStatusResponse(status.isActive(), status.remainingSeconds())));
     }
 
     /**
-     * Begins sudo mode verification using passkey authentication.
-     * Returns a challenge scoped only to the authenticated user's registered passkeys.
+     * Lists available methods the user can use to activate sudo mode.
+     * EMAIL_OTP is always listed as it is the universal fallback — no prior setup required.
+     * TOTP and PASSKEY appear only when enabled on the account.
      */
+    @GetMapping("/sudo/available-methods")
+    @Operation(
+            summary = "List available sudo mode verification methods",
+            description = "Returns ordered list of methods the user can use to activate sudo mode. " +
+                    "EMAIL_OTP is always available as the default fallback. " +
+                    "TOTP and PASSKEY appear when configured on the account.")
+    @Tag(name = "Sudo Mode")
+    public ResponseEntity<SuccessResponse<SudoAvailableMethodsResponse>> sudoAvailableMethods(
+            @AuthenticationPrincipal AuthPrincipal principal) {
+
+        User user = loadUser(principal);
+        List<String> methods = buildSudoAvailableMethods(user, principal.id());
+        return ResponseEntity.ok(SuccessResponse.of(new SudoAvailableMethodsResponse(methods)));
+    }
+
+    // =========================================================================
+    // Sudo Mode — Passkey
+    // =========================================================================
+
     @PostMapping("/sudo/begin")
-    @Operation(summary = "Begin sudo mode verification via passkey")
-    @Tag(name = "Authentication")
+    @Operation(
+            summary = "Begin sudo mode verification via passkey",
+            description = "Returns a WebAuthn challenge scoped to the authenticated user's passkeys. " +
+                    "Pass the challenge to navigator.credentials.get() and send the result to /sudo/finish.")
+    @Tag(name = "Sudo Mode")
     public ResponseEntity<SuccessResponse<AuthenticationBeginResponse>> sudoBegin(
             @AuthenticationPrincipal AuthPrincipal principal) {
 
@@ -414,22 +423,20 @@ public class AuthController {
         return ResponseEntity.ok(SuccessResponse.of(options));
     }
 
-    /**
-     * Completes sudo mode verification using passkey authentication.
-     * Verifies the WebAuthn assertion and confirms the passkey belongs to the authenticated user.
-     * Does NOT create a new session — only elevates the existing session to sudo mode.
-     */
     @PostMapping("/sudo/finish")
-    @Operation(summary = "Complete sudo mode verification via passkey")
-    @Tag(name = "Authentication")
-    public ResponseEntity<SuccessResponse<String>> sudoFinish(
+    @Operation(
+            summary = "Complete sudo mode verification via passkey",
+            description = "Verifies the WebAuthn assertion. On success activates sudo mode for this session.")
+    @Tag(name = "Sudo Mode")
+    public ResponseEntity<SuccessResponse<SudoActivatedResponse>> sudoFinish(
             @AuthenticationPrincipal AuthPrincipal principal,
             @Valid @RequestBody SudoFinishRequest request,
             HttpServletRequest httpRequest) {
 
         webAuthnService.verifyForSudoMode(request, principal.id());
-        activateSudoForSession(httpRequest);
-        return ResponseEntity.ok(SuccessResponse.of("Sudo mode activated"));
+        String sessionToken = activateSudoForSession(httpRequest);
+        long remaining = sudoModeService.getRemainingTtlSeconds(sessionToken);
+        return ResponseEntity.ok(SuccessResponse.of(new SudoActivatedResponse("Sudo mode activated", remaining)));
     }
 
     // =========================================================================
@@ -437,12 +444,16 @@ public class AuthController {
     // =========================================================================
 
     /**
-     * Sends a 6-digit one-time code to the authenticated user's email address.
-     * Subject to a per-user cooldown (default 60 s) to prevent flooding.
+     * Sends a 6-digit verification code to the user's email.
+     * Available to all authenticated users — no prior email OTP setup required.
+     * Subject to per-user cooldown (default 60 s).
      */
     @PostMapping("/sudo/otp/send")
-    @Operation(summary = "Send email OTP for sudo mode activation")
-    @Tag(name = "Authentication")
+    @Operation(
+            summary = "Send email OTP for sudo mode activation",
+            description = "Sends a 6-digit code to the account email address. No prior setup required — " +
+                    "email OTP is the universal fallback sudo method. Subject to a 60-second cooldown.")
+    @Tag(name = "Sudo Mode")
     public ResponseEntity<SuccessResponse<String>> sudoOtpSend(
             @AuthenticationPrincipal AuthPrincipal principal) {
 
@@ -452,37 +463,52 @@ public class AuthController {
     }
 
     /**
-     * Verifies the 6-digit OTP and activates sudo mode on success.
+     * Verifies the 6-digit OTP and activates sudo mode.
      * Max 3 attempts per code; request a new code after exhausting attempts.
      */
     @PostMapping("/sudo/otp/verify")
-    @Operation(summary = "Verify email OTP and activate sudo mode")
-    @Tag(name = "Authentication")
-    public ResponseEntity<SuccessResponse<String>> sudoOtpVerify(
+    @Operation(
+            summary = "Verify email OTP and activate sudo mode",
+            description = "Verifies the code sent by /sudo/otp/send. On success activates sudo mode " +
+                    "for ${auth.sudo.ttl-minutes} minutes. Returns remaining TTL in seconds.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Sudo mode activated"),
+            @ApiResponse(responseCode = "401", description = "Invalid or expired code"),
+            @ApiResponse(responseCode = "429", description = "Too many attempts — request a new code")
+    })
+    @Tag(name = "Sudo Mode")
+    public ResponseEntity<SuccessResponse<SudoActivatedResponse>> sudoOtpVerify(
             @AuthenticationPrincipal AuthPrincipal principal,
             @Valid @RequestBody OtpVerifyRequest request,
             HttpServletRequest httpRequest) {
 
         sudoOtpService.verifyOtp(principal.id(), request.code());
-        activateSudoForSession(httpRequest);
-        return ResponseEntity.ok(SuccessResponse.of("Sudo mode activated"));
+        String sessionToken = activateSudoForSession(httpRequest);
+        long remaining = sudoModeService.getRemainingTtlSeconds(sessionToken);
+        return ResponseEntity.ok(SuccessResponse.of(new SudoActivatedResponse("Sudo mode activated", remaining)));
     }
 
     // =========================================================================
     // Sudo Mode — TOTP
     // =========================================================================
 
-    /**
-     * Verifies a TOTP code from the user's authenticator app and activates sudo mode.
-     * Requires TOTP to be enabled on the account ({@code totpEnabled = true}).
-     */
     @PostMapping("/sudo/totp/verify")
-    @Operation(summary = "Verify TOTP code and activate sudo mode")
-    @Tag(name = "Authentication")
-    public ResponseEntity<SuccessResponse<String>> sudoTotpVerify(
+    @Operation(
+            summary = "Verify TOTP code and activate sudo mode",
+            description = "Requires TOTP to be enabled on the account. On success activates sudo mode " +
+                    "for ${auth.sudo.ttl-minutes} minutes. Returns remaining TTL in seconds.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Sudo mode activated"),
+            @ApiResponse(responseCode = "400", description = "TOTP not configured on account"),
+            @ApiResponse(responseCode = "401", description = "Invalid TOTP code")
+    })
+    @Tag(name = "Sudo Mode")
+    public ResponseEntity<SuccessResponse<SudoActivatedResponse>> sudoTotpVerify(
             @AuthenticationPrincipal AuthPrincipal principal,
             @Valid @RequestBody OtpVerifyRequest request,
             HttpServletRequest httpRequest) {
+
+        rateLimitService.checkRateLimit(httpRequest, 5, Duration.ofMinutes(1));
 
         User user = loadUser(principal);
 
@@ -495,8 +521,9 @@ public class AuthController {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid TOTP code");
         }
 
-        activateSudoForSession(httpRequest);
-        return ResponseEntity.ok(SuccessResponse.of("Sudo mode activated"));
+        String sessionToken = activateSudoForSession(httpRequest);
+        long remaining = sudoModeService.getRemainingTtlSeconds(sessionToken);
+        return ResponseEntity.ok(SuccessResponse.of(new SudoActivatedResponse("Sudo mode activated", remaining)));
     }
 
     // =========================================================================
@@ -504,8 +531,11 @@ public class AuthController {
     // =========================================================================
 
     @PostMapping("/sudo/deactivate")
-    @Operation(summary = "Deactivate sudo mode")
-    @Tag(name = "Authentication")
+    @Operation(
+            summary = "Deactivate sudo mode",
+            description = "Immediately revokes elevated privileges for this session. " +
+                    "The session itself remains valid.")
+    @Tag(name = "Sudo Mode")
     public ResponseEntity<SuccessResponse<String>> sudoDeactivate(HttpServletRequest request) {
 
         String sessionToken = AuthTokenFilter.extractCookie(request, AuthTokenFilter.SESSION_COOKIE_NAME)
@@ -523,7 +553,27 @@ public class AuthController {
                                     String defaultMethod) {
     }
 
-    record SudoStatusResponse(boolean isActive) {
+    record SudoStatusResponse(
+            @Schema(description = "Whether sudo mode is currently active for this session")
+            boolean isActive,
+            @Schema(description = "Seconds remaining until sudo expires (0 when inactive)")
+            long remainingSeconds
+    ) {
+    }
+
+    record SudoActivatedResponse(
+            @Schema(description = "Human-readable confirmation message")
+            String message,
+            @Schema(description = "Seconds until sudo mode expires")
+            long remainingSeconds
+    ) {
+    }
+
+    record SudoAvailableMethodsResponse(
+            @Schema(description = "Ordered list of methods available for sudo activation. " +
+                    "EMAIL_OTP is always present as the universal fallback.")
+            List<String> methods
+    ) {
     }
 
     record TwoFactorRequiredResponse(String pendingToken, List<String> availableMethods) {
@@ -639,11 +689,24 @@ public class AuthController {
     }
 
     /**
-     * Extracts the session token from the cookie and activates sudo mode for it.
+     * Extracts the session token from the cookie, activates sudo mode, and returns the token.
      */
-    private void activateSudoForSession(HttpServletRequest request) {
+    private String activateSudoForSession(HttpServletRequest request) {
         String sessionToken = AuthTokenFilter.extractCookie(request, AuthTokenFilter.SESSION_COOKIE_NAME)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication required"));
         sudoModeService.activateSudoMode(sessionToken);
+        return sessionToken;
+    }
+
+    /**
+     * Builds an ordered list of methods available for sudo activation.
+     * TOTP and PASSKEY appear first when configured; EMAIL_OTP is always the final fallback.
+     */
+    private List<String> buildSudoAvailableMethods(User user, Long userId) {
+        List<String> methods = new ArrayList<>();
+        if (user.isTotpEnabled()) methods.add("TOTP");
+        if (!webAuthnService.listCredentials(userId).isEmpty()) methods.add("PASSKEY");
+        methods.add("EMAIL_OTP");
+        return methods;
     }
 }

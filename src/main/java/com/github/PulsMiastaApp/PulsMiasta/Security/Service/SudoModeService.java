@@ -1,30 +1,59 @@
 package com.github.PulsMiastaApp.PulsMiasta.Security.Service;
 
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
+import java.util.concurrent.TimeUnit;
 
 @Service
-@RequiredArgsConstructor
 public class SudoModeService {
 
     private static final String PREFIX = "sudo:";
-    private static final int SUDO_MODE_DURATION_MINUTES = 15;
 
     private final StringRedisTemplate redisTemplate;
+    private final Duration sudoModeDuration;
+
+    public SudoModeService(
+            StringRedisTemplate redisTemplate,
+            @Value("${auth.sudo.ttl-minutes:15}") long sudoTtlMinutes
+    ) {
+        this.redisTemplate = redisTemplate;
+        this.sudoModeDuration = Duration.ofMinutes(sudoTtlMinutes);
+    }
 
     public boolean isSudoModeActive(String sessionToken) {
         return Boolean.TRUE.equals(redisTemplate.hasKey(PREFIX + sessionToken));
     }
 
     public void activateSudoMode(String sessionToken) {
-        Duration ttl = Duration.ofMinutes(SUDO_MODE_DURATION_MINUTES);
-        redisTemplate.opsForValue().set(PREFIX + sessionToken, "true", ttl);
+        redisTemplate.opsForValue().set(PREFIX + sessionToken, "true", sudoModeDuration);
     }
 
     public void deactivateSudoMode(String sessionToken) {
         redisTemplate.delete(PREFIX + sessionToken);
     }
+
+    /**
+     * Returns status in a single Redis call, avoiding the TOCTOU window that would exist
+     * between a separate {@code isSudoModeActive()} + {@code getRemainingTtlSeconds()} pair.
+     */
+    public SudoStatus getStatus(String sessionToken) {
+        Long ttl = redisTemplate.getExpire(PREFIX + sessionToken, TimeUnit.SECONDS);
+        boolean active = ttl != null && ttl > 0;
+        return new SudoStatus(active, active ? ttl : 0L);
+    }
+
+    /** Returns seconds remaining until sudo expires, or 0 if not active. */
+    public long getRemainingTtlSeconds(String sessionToken) {
+        Long ttl = redisTemplate.getExpire(PREFIX + sessionToken, TimeUnit.SECONDS);
+        return (ttl != null && ttl > 0) ? ttl : 0L;
+    }
+
+    public long getSudoTtlSeconds() {
+        return sudoModeDuration.getSeconds();
+    }
+
+    public record SudoStatus(boolean isActive, long remainingSeconds) {}
 }

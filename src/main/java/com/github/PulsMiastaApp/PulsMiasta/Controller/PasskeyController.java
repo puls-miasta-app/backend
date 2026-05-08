@@ -8,6 +8,7 @@ import com.github.PulsMiastaApp.PulsMiasta.Security.Filter.AuthTokenFilter;
 import com.github.PulsMiastaApp.PulsMiasta.Security.Model.AuthPrincipal;
 import com.github.PulsMiastaApp.PulsMiasta.Security.Service.AuthResult;
 import com.github.PulsMiastaApp.PulsMiasta.Security.Service.RateLimitService;
+import com.github.PulsMiastaApp.PulsMiasta.Security.Service.SudoModeService;
 import com.github.PulsMiastaApp.PulsMiasta.Security.WebAuthn.DTO.*;
 import com.github.PulsMiastaApp.PulsMiasta.Security.WebAuthn.Service.WebAuthnService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -66,6 +67,7 @@ public class PasskeyController {
     private final WebAuthnService webAuthnService;
     private final UserRepository userRepository;
     private final RateLimitService rateLimitService;
+    private final SudoModeService sudoModeService;
 
     @Value("${auth.session.ttl-minutes}")
     private long sessionTtlMinutes;
@@ -184,6 +186,7 @@ public class PasskeyController {
         AuthTokenFilter.applyAuthCookies(response, result, request.rememberMe(),
                 request.clientType() == ClientType.MOBILE,
                 sessionTtlMinutes, rememberMeWebDays, rememberMeMobileDays);
+        sudoModeService.activateSudoMode(result.sessionToken());
 
         return ResponseEntity.ok(SuccessResponse.of("Logged in successfully"));
     }

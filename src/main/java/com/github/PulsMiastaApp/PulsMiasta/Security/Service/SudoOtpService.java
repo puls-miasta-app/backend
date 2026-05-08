@@ -101,16 +101,18 @@ public class SudoOtpService {
         }
 
         String code = generateCode();
-        sendOtpAsync(userId, email, firstName, code);
+        // Store OTP synchronously so verify() cannot race ahead of the async email delivery.
+        redisTemplate.opsForValue().set(OTP_PREFIX + userId, code, otpTtl);
+        redisTemplate.delete(ATTEMPTS_PREFIX + userId);
+        sendEmailAsync(userId, email, firstName, code);
     }
 
     @Async
-    protected void sendOtpAsync(Long userId, String email, String firstName, String code) {
+    protected void sendEmailAsync(Long userId, String email, String firstName, String code) {
         try {
             sendEmail(email, firstName, code);
-            redisTemplate.opsForValue().set(OTP_PREFIX + userId, code, otpTtl);
-            redisTemplate.delete(ATTEMPTS_PREFIX + userId);
         } catch (Exception e) {
+            // OTP remains in Redis — user can still verify or request a new code after cooldown.
             log.error("Failed to send sudo OTP email to userId={}: {}", userId, e.getMessage(), e);
         }
     }
