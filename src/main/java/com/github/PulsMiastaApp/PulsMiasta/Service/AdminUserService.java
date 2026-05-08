@@ -35,7 +35,7 @@ public class AdminUserService {
 
     @Transactional
     public User createAdmin(Long creatorId, CreateAdminRequest req) {
-        User creator = userRepository.findById(creatorId)
+        User creator = userRepository.findByIdWithGeo(creatorId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Creator not found"));
 
         UserRole creatorRole = parseRole(creator.getRole());
@@ -95,9 +95,9 @@ public class AdminUserService {
 
     @Transactional
     public User updateAdmin(Long callerId, Long targetId, UpdateAdminRequest req) {
-        User caller = userRepository.findById(callerId)
+        User caller = userRepository.findByIdWithGeo(callerId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Caller not found"));
-        User target = userRepository.findById(targetId)
+        User target = userRepository.findByIdWithGeo(targetId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Admin nie znaleziony"));
 
         UserRole callerRole = parseRole(caller.getRole());
@@ -121,7 +121,7 @@ public class AdminUserService {
     public void revokeAdmin(Long callerId, Long targetId) {
         User caller = userRepository.findById(callerId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Caller not found"));
-        User target = userRepository.findById(targetId)
+        User target = userRepository.findByIdWithGeo(targetId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Admin nie znaleziony"));
 
         UserRole callerRole = parseRole(caller.getRole());
