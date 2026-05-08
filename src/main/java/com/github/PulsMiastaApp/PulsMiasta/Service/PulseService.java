@@ -179,9 +179,11 @@ public class PulseService {
 
     @Transactional(readOnly = true)
     public List<Pulse> listFeed(String city, String district, String street,
+                                String gmina, String powiat,
                                 boolean isAdmin, Long userId) {
         return pulseFeedJdbcRepository.findFeed(
                 blankToNull(city), blankToNull(district), blankToNull(street),
+                blankToNull(gmina), blankToNull(powiat),
                 isAdmin, userId);
     }
 

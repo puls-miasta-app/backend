@@ -56,6 +56,7 @@ public class PulseFeedJdbcRepository {
             """;
 
     public List<Pulse> findFeed(String city, String district, String street,
+                                String gmina, String powiat,
                                 boolean isAdmin, Long userId) {
         StringBuilder sql = new StringBuilder(BASE_PULSE_SELECT);
         sql.append(" WHERE p.merged_into_pulse_id IS NULL");
@@ -82,6 +83,14 @@ public class PulseFeedJdbcRepository {
         if (street != null) {
             sql.append(" AND p.street = ?");
             params.add(street);
+        }
+        if (gmina != null) {
+            sql.append(" AND p.gmina = ?");
+            params.add(gmina);
+        }
+        if (powiat != null) {
+            sql.append(" AND p.powiat = ?");
+            params.add(powiat);
         }
         sql.append(" ORDER BY p.created_at DESC");
 

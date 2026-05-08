@@ -59,10 +59,12 @@ public class PulseController {
             @RequestParam(value = "city", required = false) String city,
             @RequestParam(value = "district", required = false) String district,
             @RequestParam(value = "street", required = false) String street,
+            @RequestParam(value = "gmina", required = false) String gmina,
+            @RequestParam(value = "powiat", required = false) String powiat,
             @AuthenticationPrincipal AuthPrincipal principal
     ) {
         requireAuthenticated(principal);
-        List<Pulse> pulses = pulseService.listFeed(city, district, street,
+        List<Pulse> pulses = pulseService.listFeed(city, district, street, gmina, powiat,
                 principal.isAdmin(), principal.id());
         var pulseIds = pulses.stream().map(Pulse::getId).toList();
         var votes = pulseService.getUserVotes(pulseIds, principal.id());
