@@ -289,6 +289,15 @@ public class PulseCommentService {
             String rawStatus, String scopeColumn, Set<String> scopeValues, int page, int size) {
         CommentReportStatus status = parseStatus(rawStatus);
         PageRequest pageable = PageRequest.of(page, size);
+        // scopeColumn == null → super admin, nie generujemy IN (puste scopeValues → 1=0 → bug S1009)
+        if (scopeColumn == null) {
+            return reportRepository.findAllReports(status, pageable)
+                    .map(PulseCommentService::toReportResponse);
+        }
+        // scoped admin bez przypisanych obszarów → pusty wynik bez query
+        if (scopeValues.isEmpty()) {
+            return Page.empty(pageable);
+        }
         return reportRepository.findInScope(status, scopeColumn, scopeValues, pageable)
                 .map(PulseCommentService::toReportResponse);
     }

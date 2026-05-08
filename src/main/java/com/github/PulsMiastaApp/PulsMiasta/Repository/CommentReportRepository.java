@@ -16,8 +16,34 @@ public interface CommentReportRepository extends JpaRepository<CommentReport, Lo
     boolean existsByCommentIdAndReporterId(Long commentId, Long reporterId);
 
     /**
+     * Zgłoszenia bez filtrowania zakresu — dla SUPER_ADMIN.
+     * Osobna metoda eliminuje generowanie przez Hibernate pustego IN (→ 1=0 → ?='city' and 1=0),
+     * który myli klasyfikator MySQL Connector/J i powoduje SQLState S1009.
+     */
+    @Query(value = """
+            SELECT r FROM CommentReport r
+            JOIN FETCH r.comment c
+            JOIN FETCH c.pulse p
+            JOIN FETCH r.reporter
+            LEFT JOIN FETCH r.reviewedBy
+            WHERE (:status IS NULL OR r.status = :status)
+            ORDER BY r.createdAt DESC
+            """,
+            countQuery = """
+            SELECT COUNT(r) FROM CommentReport r
+            JOIN r.comment c
+            JOIN c.pulse p
+            WHERE (:status IS NULL OR r.status = :status)
+            """)
+    Page<CommentReport> findAllReports(
+            @Param("status") CommentReportStatus status,
+            Pageable pageable);
+
+    /**
      * Zgłoszenia w zasięgu admina — JOIN FETCH eliminuje N+1 dla wszystkich
      * lazy relacji używanych w toReportResponse (reporter, reviewedBy, comment, pulse).
+     * Wywoływać tylko gdy scopeValues jest niepuste — puste IN generuje 1=0 i triggeruje
+     * bug MySQL Connector/J S1009.
      */
     @Query(value = """
             SELECT r FROM CommentReport r

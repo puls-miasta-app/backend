@@ -15,6 +15,28 @@ public interface PulseReportRepository extends JpaRepository<PulseReport, Long> 
 
     boolean existsByPulseIdAndReporterId(Long pulseId, Long reporterId);
 
+    /**
+     * Zgłoszenia bez filtrowania zakresu — dla SUPER_ADMIN.
+     * Osobna metoda eliminuje generowanie przez Hibernate pustego IN (→ 1=0 → ?='city' and 1=0),
+     * który myli klasyfikator MySQL Connector/J i powoduje SQLState S1009.
+     */
+    @Query(value = """
+            SELECT r FROM PulseReport r
+            JOIN FETCH r.pulse p
+            JOIN FETCH r.reporter
+            LEFT JOIN FETCH r.reviewedBy
+            WHERE (:status IS NULL OR r.status = :status)
+            ORDER BY r.createdAt DESC
+            """,
+            countQuery = """
+            SELECT COUNT(r) FROM PulseReport r
+            JOIN r.pulse p
+            WHERE (:status IS NULL OR r.status = :status)
+            """)
+    Page<PulseReport> findAllReports(
+            @Param("status") PulseReportStatus status,
+            Pageable pageable);
+
     @Query(value = """
             SELECT r FROM PulseReport r
             JOIN FETCH r.pulse p
