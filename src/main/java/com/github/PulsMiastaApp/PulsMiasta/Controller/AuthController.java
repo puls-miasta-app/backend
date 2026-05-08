@@ -168,7 +168,7 @@ public class AuthController {
         User user = authService.findById(userId);
 
         if (!totpService.isValidCode(user.getTotpSecret(), request.totpCode())) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid TOTP code");
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Nieprawidłowy kod TOTP");
         }
 
         twoFactorPendingService.consumePendingToken(request.pendingToken());
@@ -317,10 +317,10 @@ public class AuthController {
             @RequestBody ChangePasswordRequest request,
             @AuthenticationPrincipal AuthPrincipal principal) {
         if (principal == null) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication required");
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Wymagane uwierzytelnienie");
         }
         if (request.newPassword() == null || request.newPassword().length() < 8) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "newPassword must be at least 8 characters");
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Nowe hasło musi mieć co najmniej 8 znaków");
         }
         authService.changePassword(principal.id(), request.currentPassword(), request.newPassword());
         return ResponseEntity.ok(SuccessResponse.of("Password changed successfully"));
@@ -353,7 +353,7 @@ public class AuthController {
             @Valid @RequestBody SetDefaultMethodRequest request) {
 
         if (principal == null) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication required");
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Wymagane uwierzytelnienie");
         }
         authService.setTwoFactorDefaultMethod(principal.id(), request.method());
         return ResponseEntity.ok(SuccessResponse.of("Default 2FA method updated"));
@@ -514,11 +514,11 @@ public class AuthController {
 
         if (!user.isTotpEnabled() || user.getTotpSecret() == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "TOTP is not configured for this account");
+                    "TOTP nie jest skonfigurowany dla tego konta");
         }
 
         if (!totpService.isValidCode(user.getTotpSecret(), request.code())) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid TOTP code");
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Nieprawidłowy kod TOTP");
         }
 
         String sessionToken = activateSudoForSession(httpRequest);
@@ -675,7 +675,7 @@ public class AuthController {
 
     private User loadUser(AuthPrincipal principal) {
         if (principal == null) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication required");
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Wymagane uwierzytelnienie");
         }
         return authService.findById(principal.id());
     }
@@ -684,7 +684,7 @@ public class AuthController {
         List<String> methods = twoFactorPendingService.getAvailableMethods(pendingToken);
         if (!methods.contains(method)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    method + " is not available for this account");
+                    method + " nie jest dostępna dla tego konta");
         }
     }
 

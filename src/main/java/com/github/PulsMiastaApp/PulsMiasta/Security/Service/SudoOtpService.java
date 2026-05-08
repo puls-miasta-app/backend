@@ -97,7 +97,7 @@ public class SudoOtpService {
         if (Boolean.FALSE.equals(wasSet)) {
             log.debug("Sudo OTP send rejected — cooldown active for userId={}", userId);
             throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,
-                    "Please wait before requesting another code");
+                    "Poczekaj przed wysłaniem kolejnego kodu");
         }
 
         String code = generateCode();
@@ -146,17 +146,17 @@ public class SudoOtpService {
 
         if (attempts > maxAttempts) {
             throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,
-                    "Too many incorrect attempts. Please request a new code.");
+                    "Zbyt wiele nieprawidłowych prób. Poproś o nowy kod.");
         }
 
         String stored = redisTemplate.opsForValue().get(OTP_PREFIX + userId);
         if (stored == null) {
             redisTemplate.opsForValue().decrement(attemptsKey);
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Code expired or not requested");
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Kod wygasł lub nie został wysłany");
         }
 
         if (!stored.equals(code)) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid code");
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Nieprawidłowy kod");
         }
 
         // Success — clean up all keys

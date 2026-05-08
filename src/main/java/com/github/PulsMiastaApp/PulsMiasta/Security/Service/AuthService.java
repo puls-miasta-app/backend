@@ -31,7 +31,7 @@ public class AuthService {
 
     public AuthResult register(RegisterRequest request) {
         if (userRepository.existsByEmail(request.email())) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Email already in use");
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Adres e-mail jest już używany");
         }
 
         User user = new User();
@@ -69,18 +69,18 @@ public class AuthService {
         User user = userRepository.findByEmail(request.email()).orElse(null);
 
         if (user == null) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials");
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Nieprawidłowe dane logowania");
         }
 
         loginAttemptService.checkLockout(clientIp, request.email());
 
         if (!passwordEncoder.matches(request.password(), user.getPasswordHash())) {
             loginAttemptService.recordFailedAttempt(clientIp, request.email());
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials");
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Nieprawidłowe dane logowania");
         }
 
         if (!user.isEmailVerified()) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Email must be verified before login");
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Adres e-mail musi być zweryfikowany przed zalogowaniem");
         }
 
         loginAttemptService.clearAttempts(clientIp, request.email());
@@ -116,7 +116,7 @@ public class AuthService {
 
     public User findById(Long userId) {
         return userRepository.findById(userId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User not found"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Użytkownik nie znaleziony"));
     }
 
     /**
@@ -126,14 +126,14 @@ public class AuthService {
      */
     public void changePassword(Long userId, String currentPassword, String newPassword) {
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User not found"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Użytkownik nie znaleziony"));
 
         if (!user.isMustChangePassword()) {
             if (currentPassword == null || currentPassword.isBlank()) {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "currentPassword is required");
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Aktualne hasło jest wymagane");
             }
             if (!passwordEncoder.matches(currentPassword, user.getPasswordHash())) {
-                throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid current password");
+                throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Nieprawidłowe aktualne hasło");
             }
         }
 
@@ -169,7 +169,7 @@ public class AuthService {
      */
     public void setTwoFactorDefaultMethod(Long userId, String method) {
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User not found"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Użytkownik nie znaleziony"));
 
         boolean available = switch (method) {
             case "TOTP" -> user.isTotpEnabled();
@@ -179,7 +179,7 @@ public class AuthService {
         };
         if (!available) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "2FA method '" + method + "' is not enabled for this account");
+                    "Metoda 2FA '" + method + "' nie jest włączona dla tego konta");
         }
 
         user.setTwoFactorDefaultMethod(method);

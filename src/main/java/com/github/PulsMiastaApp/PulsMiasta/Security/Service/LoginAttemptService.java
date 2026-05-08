@@ -76,8 +76,8 @@ public class LoginAttemptService {
             long ttlSeconds = redisTemplate.getExpire(lockoutKey, TimeUnit.SECONDS);
             long remainingMinutes = Math.max(1, (long) Math.ceil(ttlSeconds / 60.0));
             throw new ResponseStatusException(HttpStatus.LOCKED,
-                    String.format("Too many failed login attempts. " +
-                            "Please try again in %d minutes.", remainingMinutes));
+                    String.format("Zbyt wiele nieudanych prób logowania. " +
+                            "Spróbuj ponownie za %d minut.", remainingMinutes));
         }
     }
 

@@ -26,10 +26,10 @@ public class NotificationService {
     @Transactional
     public NotificationDtos.DeviceResponse register(Long userId, NotificationDtos.RegisterDeviceRequest req) {
         if (req == null || req.pushToken() == null || req.pushToken().isBlank()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "pushToken is required");
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Token powiadomień jest wymagany");
         }
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Użytkownik nie znaleziony"));
 
         DeviceRegistration device = deviceRepo.findByPushToken(req.pushToken())
                 .orElseGet(DeviceRegistration::new);
@@ -39,7 +39,7 @@ public class NotificationService {
                 && device.getUser() != null
                 && !userId.equals(device.getUser().getId())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
-                    "Push token is already registered to another user");
+                    "Token powiadomień jest już przypisany do innego użytkownika");
         }
         device.setUser(user);
         device.setPushToken(req.pushToken());
@@ -53,11 +53,11 @@ public class NotificationService {
     @Transactional
     public void unregister(Long userId, String pushToken) {
         if (pushToken == null || pushToken.isBlank()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "pushToken is required");
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Token powiadomień jest wymagany");
         }
         deviceRepo.findByPushToken(pushToken).ifPresent(device -> {
             if (device.getUser() == null || !userId.equals(device.getUser().getId())) {
-                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Device belongs to another user");
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Urządzenie należy do innego użytkownika");
             }
             deviceRepo.delete(device);
         });
@@ -83,7 +83,7 @@ public class NotificationService {
     public NotificationDtos.PreferencesResponse updatePreferences(Long userId,
                                                                   NotificationDtos.PreferencesRequest req) {
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Użytkownik nie znaleziony"));
         NotificationPreferences prefs = prefsRepo.findByUserId(userId).orElseGet(() -> {
             NotificationPreferences p = new NotificationPreferences();
             p.setUser(user);

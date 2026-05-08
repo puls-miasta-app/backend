@@ -42,14 +42,14 @@ public class PhotoStorageService {
      */
     private void validateRawBytes(byte[] bytes, String contentType) {
         if (bytes == null || bytes.length == 0) {
-            throw new StorageException("File is empty");
+            throw new StorageException("Plik jest pusty");
         }
         if (bytes.length > storageProperties.getMaxFileSize()) {
-            throw new StorageException("File exceeds maximum size of %d MB"
+            throw new StorageException("Plik przekracza maksymalny rozmiar %d MB"
                     .formatted(storageProperties.getMaxFileSize() / (1024 * 1024)));
         }
         if (contentType == null || !ALLOWED_CONTENT_TYPES.contains(contentType.toLowerCase())) {
-            throw new StorageException("Unsupported file type");
+            throw new StorageException("Nieobsługiwany typ pliku");
         }
         byte[] head = new byte[Math.min(12, bytes.length)];
         System.arraycopy(bytes, 0, head, 0, head.length);
@@ -62,7 +62,7 @@ public class PhotoStorageService {
      */
     private void validateMagicBytes(byte[] head, String contentType) {
         if (head.length < 4) {
-            throw new StorageException("File too small to validate");
+            throw new StorageException("Plik jest za mały do weryfikacji");
         }
 
         boolean valid = switch (contentType) {
@@ -77,7 +77,7 @@ public class PhotoStorageService {
         };
 
         if (!valid) {
-            throw new StorageException("File content does not match declared type");
+            throw new StorageException("Zawartość pliku nie pasuje do zadeklarowanego typu");
         }
     }
 
@@ -95,11 +95,11 @@ public class PhotoStorageService {
                         .build())) {
             fileCryptoService.decrypt(encrypted, out);
         } catch (NoSuchKeyException e) {
-            throw new StorageException("Photo object not found: " + objectKey);
+            throw new StorageException("Obiekt zdjęcia nie znaleziony: " + objectKey);
         } catch (StorageException e) {
             throw e;
         } catch (Exception e) {
-            throw new StorageException("Failed to download or decrypt photo", e);
+            throw new StorageException("Błąd pobierania lub odszyfrowywania zdjęcia", e);
         }
     }
 
@@ -162,7 +162,7 @@ public class PhotoStorageService {
         } catch (StorageException e) {
             throw e;
         } catch (Exception e) {
-            throw new StorageException("Failed to encrypt and upload photo", e);
+            throw new StorageException("Błąd szyfrowania lub przesyłania zdjęcia", e);
         }
     }
 
@@ -228,7 +228,7 @@ public class PhotoStorageService {
 
         } catch (Exception e) {
             abortMultipartUpload(key, uploadId);
-            throw new StorageException("Multipart upload failed for key: " + key, e);
+            throw new StorageException("Przesyłanie wieloczęściowe nieudane dla klucza: " + key, e);
         }
     }
 
