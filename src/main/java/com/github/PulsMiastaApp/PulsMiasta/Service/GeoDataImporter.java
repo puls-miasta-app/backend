@@ -15,7 +15,6 @@ import org.springframework.boot.ApplicationRunner;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.util.*;
 
@@ -34,7 +33,6 @@ public class GeoDataImporter implements ApplicationRunner {
     private final ObjectMapper objectMapper;
 
     @Override
-    @Transactional
     public void run(ApplicationArguments args) throws Exception {
         if (wojRepository.count() > 0) {
             log.debug("Dane geograficzne już zaimportowane, pomijam.");
@@ -47,29 +45,29 @@ public class GeoDataImporter implements ApplicationRunner {
                 new ClassPathResource(GEO_JSON).getInputStream(),
                 new TypeReference<>() {});
 
-        // --- Województwa (16) ---
-        Map<String, Wojewodztwo> wojByName = new LinkedHashMap<>();
+        // --- Województwa (16) — each save() runs in its own transaction ---
+        Map<String, Long> wojIdByName = new LinkedHashMap<>();
         for (Map<String, Object> e : entries) {
             String name = (String) e.get("voivodeship");
-            if (!wojByName.containsKey(name)) {
-                wojByName.put(name, wojRepository.save(new Wojewodztwo(name)));
+            if (!wojIdByName.containsKey(name)) {
+                wojIdByName.put(name, wojRepository.save(new Wojewodztwo(name)).getId());
             }
         }
-        log.info("Zaimportowano {} województw", wojByName.size());
+        log.info("Zaimportowano {} województw", wojIdByName.size());
 
         // --- Powiaty (370) ---
         record PowKey(String name, String woj) {}
-        Map<PowKey, Powiat> powByKey = new LinkedHashMap<>();
+        Map<PowKey, Long> powIdByKey = new LinkedHashMap<>();
         for (Map<String, Object> e : entries) {
             String powName = (String) e.get("powiat");
             String wojName = (String) e.get("voivodeship");
             PowKey key = new PowKey(powName, wojName);
-            if (!powByKey.containsKey(key)) {
-                Powiat p = powiatRepository.save(new Powiat(powName, wojByName.get(wojName)));
-                powByKey.put(key, p);
+            if (!powIdByKey.containsKey(key)) {
+                Wojewodztwo wojRef = wojRepository.getReferenceById(wojIdByName.get(wojName));
+                powIdByKey.put(key, powiatRepository.save(new Powiat(powName, wojRef)).getId());
             }
         }
-        log.info("Zaimportowano {} powiatów", powByKey.size());
+        log.info("Zaimportowano {} powiatów", powIdByKey.size());
 
         // --- Gminy (2479) ---
         record GmKey(String name, String type, String powiat, String woj) {}
@@ -81,9 +79,8 @@ public class GeoDataImporter implements ApplicationRunner {
             String wojName = (String) e.get("voivodeship");
             GmKey key = new GmKey(gmName, gmType, powName, wojName);
             if (!gminaIdByKey.containsKey(key)) {
-                Powiat powiat = powByKey.get(new PowKey(powName, wojName));
-                Gmina gm = gminaRepository.save(new Gmina(gmName, gmType, powiat));
-                gminaIdByKey.put(key, gm.getId());
+                Powiat powRef = powiatRepository.getReferenceById(powIdByKey.get(new PowKey(powName, wojName)));
+                gminaIdByKey.put(key, gminaRepository.save(new Gmina(gmName, gmType, powRef)).getId());
             }
         }
         log.info("Zaimportowano {} gmin", gminaIdByKey.size());
@@ -92,18 +89,17 @@ public class GeoDataImporter implements ApplicationRunner {
         List<Object[]> batch = new ArrayList<>(BATCH_SIZE);
         int total = 0;
         for (Map<String, Object> e : entries) {
+            Number latNum = (Number) e.get("lat");
+            Number lngNum = (Number) e.get("lng");
+            if (latNum == null || lngNum == null) continue;
+
             GmKey key = new GmKey(
                     (String) e.get("gmina"),
                     (String) e.get("gminaType"),
                     (String) e.get("powiat"),
                     (String) e.get("voivodeship"));
             Long gminaId = gminaIdByKey.get(key);
-            batch.add(new Object[]{
-                    e.get("name"),
-                    ((Number) e.get("lat")).doubleValue(),
-                    ((Number) e.get("lng")).doubleValue(),
-                    gminaId
-            });
+            batch.add(new Object[]{e.get("name"), latNum.doubleValue(), lngNum.doubleValue(), gminaId});
             if (batch.size() == BATCH_SIZE) {
                 flushBatch(batch);
                 total += BATCH_SIZE;

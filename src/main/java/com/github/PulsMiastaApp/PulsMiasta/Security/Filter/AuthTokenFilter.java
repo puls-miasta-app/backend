@@ -70,8 +70,8 @@ public class AuthTokenFilter extends OncePerRequestFilter {
             }
         }
 
-        // 3. Resolve userId → User → AuthPrincipal → SecurityContext
-        userId.flatMap(userRepository::findById)
+        // 3. Resolve userId → User (with geo JOIN FETCH) → AuthPrincipal → SecurityContext
+        userId.flatMap(userRepository::findByIdWithGeo)
                 .map(AuthPrincipal::from)
                 .ifPresent(principal -> {
                     UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(

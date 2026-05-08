@@ -6,6 +6,7 @@ import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.*;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Enums.UserRole;
 import com.github.PulsMiastaApp.PulsMiasta.Repository.*;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -159,28 +160,28 @@ public class AdminUserService {
                 requireIds(powIds, "managedPowiatIds");
                 requireIds(gmIds, "managedGminaIds");
                 requireIds(miejIds, "managedMiastoIds");
-                wojew = resolveSet(wojIds, wojRepository, "Województwo");
-                pow = resolveSetPow(powIds);
-                gm = resolveSetGm(gmIds);
-                miej = resolveSetMiej(miejIds);
+                wojew = resolveAll(wojIds, wojRepository, "Województwo");
+                pow   = resolveAll(powIds, powiatRepository, "Powiat");
+                gm    = resolveAll(gmIds, gminaRepository, "Gmina");
+                miej  = resolveAll(miejIds, miejscowoscRepository, "Miejscowość");
             }
             case ADMIN_GMINY -> {
                 requireIds(wojIds, "managedWojewodztwoIds");
                 requireIds(powIds, "managedPowiatIds");
                 requireIds(gmIds, "managedGminaIds");
-                wojew = resolveSet(wojIds, wojRepository, "Województwo");
-                pow = resolveSetPow(powIds);
-                gm = resolveSetGm(gmIds);
+                wojew = resolveAll(wojIds, wojRepository, "Województwo");
+                pow   = resolveAll(powIds, powiatRepository, "Powiat");
+                gm    = resolveAll(gmIds, gminaRepository, "Gmina");
             }
             case ADMIN_POWIATU -> {
                 requireIds(wojIds, "managedWojewodztwoIds");
                 requireIds(powIds, "managedPowiatIds");
-                wojew = resolveSet(wojIds, wojRepository, "Województwo");
-                pow = resolveSetPow(powIds);
+                wojew = resolveAll(wojIds, wojRepository, "Województwo");
+                pow   = resolveAll(powIds, powiatRepository, "Powiat");
             }
             case ADMIN_WOJEWODZTWA -> {
                 requireIds(wojIds, "managedWojewodztwoIds");
-                wojew = resolveSet(wojIds, wojRepository, "Województwo");
+                wojew = resolveAll(wojIds, wojRepository, "Województwo");
             }
             default -> { /* SUPER_ADMIN — brak pól */ }
         }
@@ -188,40 +189,14 @@ public class AdminUserService {
         return new GeoSets(wojew, pow, gm, miej);
     }
 
-    private Set<Wojewodztwo> resolveSet(List<Long> ids, WojewodztwoRepository repo, String label) {
-        Set<Wojewodztwo> result = new HashSet<>();
-        for (Long id : ids) {
-            result.add(repo.findById(id).orElseThrow(
-                    () -> new ResponseStatusException(HttpStatus.BAD_REQUEST, label + " id=" + id + " nie istnieje")));
+    private <T> Set<T> resolveAll(List<Long> ids, JpaRepository<T, Long> repo, String label) {
+        Set<Long> distinct = new HashSet<>(ids);
+        List<T> found = repo.findAllById(distinct);
+        if (found.size() != distinct.size()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    label + " — podano nieistniejące ID");
         }
-        return result;
-    }
-
-    private Set<Powiat> resolveSetPow(List<Long> ids) {
-        Set<Powiat> result = new HashSet<>();
-        for (Long id : ids) {
-            result.add(powiatRepository.findById(id).orElseThrow(
-                    () -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Powiat id=" + id + " nie istnieje")));
-        }
-        return result;
-    }
-
-    private Set<Gmina> resolveSetGm(List<Long> ids) {
-        Set<Gmina> result = new HashSet<>();
-        for (Long id : ids) {
-            result.add(gminaRepository.findById(id).orElseThrow(
-                    () -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Gmina id=" + id + " nie istnieje")));
-        }
-        return result;
-    }
-
-    private Set<Miejscowosc> resolveSetMiej(List<Long> ids) {
-        Set<Miejscowosc> result = new HashSet<>();
-        for (Long id : ids) {
-            result.add(miejscowoscRepository.findById(id).orElseThrow(
-                    () -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Miejscowość id=" + id + " nie istnieje")));
-        }
-        return result;
+        return new HashSet<>(found);
     }
 
     // ---------- scope enforcement ----------
@@ -285,25 +260,31 @@ public class AdminUserService {
         if (creatorRole == UserRole.SUPER_ADMIN) return;
 
         if (creatorRole.ordinal() >= UserRole.ADMIN_WOJEWODZTWA.ordinal()) {
-            assertSubset(namesOf(creator.getManagedWojewodztwa()),
-                    namesOf(geo.wojew()), "managedWojewodztwoIds");
+            assertSubsetIds(
+                    creator.getManagedWojewodztwa().stream().map(Wojewodztwo::getId).collect(Collectors.toSet()),
+                    geo.wojew().stream().map(Wojewodztwo::getId).collect(Collectors.toSet()),
+                    "managedWojewodztwoIds");
         }
         if (creatorRole.ordinal() >= UserRole.ADMIN_POWIATU.ordinal()
                 && targetRole.ordinal() <= UserRole.ADMIN_POWIATU.ordinal()) {
-            assertSubset(namesOfPow(creator.getManagedPowiaty()),
-                    namesOfPow(geo.pow()), "managedPowiatIds");
+            assertSubsetIds(
+                    creator.getManagedPowiaty().stream().map(Powiat::getId).collect(Collectors.toSet()),
+                    geo.pow().stream().map(Powiat::getId).collect(Collectors.toSet()),
+                    "managedPowiatIds");
         }
         if (creatorRole == UserRole.ADMIN_GMINY) {
-            assertSubset(namesOfGm(creator.getManagedGminy()),
-                    namesOfGm(geo.gm()), "managedGminaIds");
+            assertSubsetIds(
+                    creator.getManagedGminy().stream().map(Gmina::getId).collect(Collectors.toSet()),
+                    geo.gm().stream().map(Gmina::getId).collect(Collectors.toSet()),
+                    "managedGminaIds");
         }
     }
 
-    private static void assertSubset(Set<String> creatorScope, Set<String> requestedScope, String field) {
-        for (String v : requestedScope) {
-            if (!creatorScope.contains(v)) {
+    private static void assertSubsetIds(Set<Long> creatorScope, Set<Long> requestedScope, String field) {
+        for (Long id : requestedScope) {
+            if (!creatorScope.contains(id)) {
                 throw new ResponseStatusException(HttpStatus.FORBIDDEN,
-                        "Wartość '" + v + "' w polu " + field + " wykracza poza Twój zasięg");
+                        "ID " + id + " w polu " + field + " wykracza poza Twój zasięg");
             }
         }
     }

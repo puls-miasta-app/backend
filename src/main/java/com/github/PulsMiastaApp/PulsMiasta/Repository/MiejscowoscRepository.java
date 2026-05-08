@@ -13,14 +13,17 @@ public interface MiejscowoscRepository extends JpaRepository<Miejscowosc, Long> 
 
     List<Miejscowosc> findByGminaOrderByName(Gmina gmina);
 
-    /** Fetch-join całej hierarchii, żeby uniknąć N+1 przy budowie odpowiedzi search. */
+    /**
+     * Fetch-join całej hierarchii. Przyjmuje gotowy pattern (np. "%warszawa%")
+     * z już escaped wildcards (\%, \_) przy użyciu ESCAPE '\'.
+     */
     @Query("""
             SELECT m FROM Miejscowosc m
             JOIN FETCH m.gmina g
             JOIN FETCH g.powiat p
             JOIN FETCH p.wojewodztwo
-            WHERE LOWER(m.name) LIKE LOWER(CONCAT('%', :q, '%'))
+            WHERE LOWER(m.name) LIKE :pattern ESCAPE '\\'
             ORDER BY m.name
             """)
-    List<Miejscowosc> searchByNameWithHierarchy(@Param("q") String query, Pageable pageable);
+    List<Miejscowosc> searchByNameWithHierarchy(@Param("pattern") String pattern, Pageable pageable);
 }

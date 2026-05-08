@@ -17,6 +17,16 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
     Optional<User> findByWebauthnUserHandle(byte[] webauthnUserHandle);
 
+    @Query("""
+            SELECT u FROM User u
+            LEFT JOIN FETCH u.managedWojewodztwa
+            LEFT JOIN FETCH u.managedPowiaty
+            LEFT JOIN FETCH u.managedGminy
+            LEFT JOIN FETCH u.managedMiasta
+            WHERE u.id = :id
+            """)
+    Optional<User> findByIdWithGeo(@Param("id") Long id);
+
     @Query("SELECT DISTINCT u FROM User u WHERE u.role IN :roles ORDER BY u.id")
     List<User> findAllAdmins(@Param("roles") List<String> roles);
 

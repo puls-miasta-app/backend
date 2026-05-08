@@ -2,9 +2,10 @@ package com.github.PulsMiastaApp.PulsMiasta.Controller.DTO;
 
 import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.*;
 
+import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
-import java.util.stream.Collectors;
+import java.util.function.Function;
 
 public record AdminUserResponse(
         Long id,
@@ -26,38 +27,18 @@ public record AdminUserResponse(
                 user.getFirstName(),
                 user.getLastName(),
                 user.getRole(),
-                toList(user.getManagedWojewodztwa()),
-                toListPow(user.getManagedPowiaty()),
-                toListGm(user.getManagedGminy()),
-                toListMiej(user.getManagedMiasta())
+                toGeoList(user.getManagedWojewodztwa(), Wojewodztwo::getId, Wojewodztwo::getName),
+                toGeoList(user.getManagedPowiaty(),     Powiat::getId,      Powiat::getName),
+                toGeoList(user.getManagedGminy(),       Gmina::getId,       Gmina::getName),
+                toGeoList(user.getManagedMiasta(),      Miejscowosc::getId, Miejscowosc::getName)
         );
     }
 
-    private static List<GeoItemResponse> toList(Set<Wojewodztwo> items) {
+    private static <T> List<GeoItemResponse> toGeoList(Set<T> items,
+            Function<T, Long> idFn, Function<T, String> nameFn) {
         return items.stream()
-                .map(w -> new GeoItemResponse(w.getId(), w.getName()))
-                .sorted(java.util.Comparator.comparing(GeoItemResponse::name))
-                .collect(Collectors.toList());
-    }
-
-    private static List<GeoItemResponse> toListPow(Set<Powiat> items) {
-        return items.stream()
-                .map(p -> new GeoItemResponse(p.getId(), p.getName()))
-                .sorted(java.util.Comparator.comparing(GeoItemResponse::name))
-                .collect(Collectors.toList());
-    }
-
-    private static List<GeoItemResponse> toListGm(Set<Gmina> items) {
-        return items.stream()
-                .map(g -> new GeoItemResponse(g.getId(), g.getName()))
-                .sorted(java.util.Comparator.comparing(GeoItemResponse::name))
-                .collect(Collectors.toList());
-    }
-
-    private static List<GeoItemResponse> toListMiej(Set<Miejscowosc> items) {
-        return items.stream()
-                .map(m -> new GeoItemResponse(m.getId(), m.getName()))
-                .sorted(java.util.Comparator.comparing(GeoItemResponse::name))
-                .collect(Collectors.toList());
+                .map(item -> new GeoItemResponse(idFn.apply(item), nameFn.apply(item)))
+                .sorted(Comparator.comparing(GeoItemResponse::name))
+                .toList();
     }
 }

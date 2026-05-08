@@ -2,7 +2,6 @@ package com.github.PulsMiastaApp.PulsMiasta.Controller;
 
 import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.*;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.Gmina;
-import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.Miejscowosc;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.Powiat;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.Wojewodztwo;
 import com.github.PulsMiastaApp.PulsMiasta.Repository.*;
@@ -15,7 +14,6 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
-import java.util.Map;
 
 /**
  * Publiczne API hierarchii administracyjnej Polski.
@@ -74,32 +72,21 @@ public class GeoController {
 
     /** Wyszukiwanie miejscowości po nazwie (autocomplete). Zwraca max 20 wyników. */
     @GetMapping("/miejscowosci/search")
-    public ResponseEntity<SuccessResponse<List<Map<String, Object>>>> searchMiejscowosci(
+    public ResponseEntity<SuccessResponse<List<MiejscowoscSearchResponse>>> searchMiejscowosci(
             @RequestParam String q) {
         if (q == null || q.isBlank() || q.length() < 2) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Podaj co najmniej 2 znaki");
         }
-        List<Map<String, Object>> results = miejscowoscRepository
-                .searchByNameWithHierarchy(q.trim(), PageRequest.of(0, 20))
+        String pattern = "%" + escapeLike(q.trim().toLowerCase()) + "%";
+        List<MiejscowoscSearchResponse> results = miejscowoscRepository
+                .searchByNameWithHierarchy(pattern, PageRequest.of(0, 20))
                 .stream()
-                .map(m -> {
-                    Gmina g = m.getGmina();
-                    Powiat p = g.getPowiat();
-                    Wojewodztwo w = p.getWojewodztwo();
-                    return Map.<String, Object>of(
-                            "id", m.getId(),
-                            "name", m.getName(),
-                            "gmina", g.getName(),
-                            "gminaId", g.getId(),
-                            "powiat", p.getName(),
-                            "powiatId", p.getId(),
-                            "wojewodztwo", w.getName(),
-                            "wojewodztwoId", w.getId(),
-                            "lat", m.getLat(),
-                            "lng", m.getLng()
-                    );
-                })
+                .map(MiejscowoscSearchResponse::from)
                 .toList();
         return ResponseEntity.ok(SuccessResponse.of(results));
+    }
+
+    private static String escapeLike(String value) {
+        return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
     }
 }
