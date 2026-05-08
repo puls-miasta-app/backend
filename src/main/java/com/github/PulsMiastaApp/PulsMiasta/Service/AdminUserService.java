@@ -12,8 +12,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.util.Arrays;
-import java.util.List;
+import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -31,10 +31,6 @@ public class AdminUserService {
     private final GminaRepository gminaRepository;
     private final MiejscowoscRepository miejscowoscRepository;
 
-    /**
-     * Tworzy nowego admina. Caller musi być adminem z uprawnieniami do nadawania
-     * żądanej roli, a obszar zarządzania nowego admina musi mieścić się w obszarze callera.
-     */
     @Transactional
     public User createAdmin(Long creatorId, CreateAdminRequest req) {
         User creator = userRepository.findById(creatorId)
@@ -48,13 +44,10 @@ public class AdminUserService {
                     "Rola " + creatorRole.name() + " nie może tworzyć adminów z rolą " + targetRole.name());
         }
 
-        GeoRefs refs = resolveGeoRefs(req.managedWojewodztwoId(), req.managedPowiatId(),
-                req.managedGminaId(), req.managedMiastoId(),
-                req.managedWojewodztwo(), req.managedPowiat(), req.managedGmina(), req.managedMiasto());
+        GeoSets geo = resolveAndValidateGeo(targetRole, req.managedWojewodztwoIds(),
+                req.managedPowiatIds(), req.managedGminaIds(), req.managedMiastoIds());
 
-        CreateAdminRequest normalized = normalizeReqStrings(req, refs);
-        validateScopeFields(targetRole, normalized);
-        validateCreatorScope(creatorRole, creator, targetRole, normalized);
+        validateCreatorScope(creatorRole, creator, targetRole, geo);
 
         if (userRepository.existsByEmail(req.email())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Email jest już używany");
@@ -70,14 +63,11 @@ public class AdminUserService {
         newAdmin.setEmailOtpEnabled(true);
         newAdmin.setMustChangePassword(true);
 
-        applyGeoScope(newAdmin, targetRole, refs, normalized, creatorRole, creator);
+        applyScope(newAdmin, targetRole, geo, creatorRole, creator);
 
         return userRepository.save(newAdmin);
     }
 
-    /**
-     * Zwraca listę adminów widocznych dla callera zgodnie z jego zasięgiem.
-     */
     @Transactional(readOnly = true)
     public List<User> listAdminsInScope(Long callerId) {
         User caller = userRepository.findById(callerId)
@@ -86,19 +76,16 @@ public class AdminUserService {
 
         return switch (callerRole) {
             case SUPER_ADMIN -> userRepository.findAllAdmins(ALL_ADMIN_ROLES);
-            case ADMIN_WOJEWODZTWA -> userRepository.findAdminsByWojewodztwo(
-                    ALL_ADMIN_ROLES, caller.getManagedWojewodztwo());
-            case ADMIN_POWIATU -> userRepository.findAdminsByPowiat(
-                    ALL_ADMIN_ROLES, caller.getManagedWojewodztwo(), caller.getManagedPowiat());
-            case ADMIN_GMINY -> userRepository.findAdminsByGmina(
-                    ALL_ADMIN_ROLES, caller.getManagedWojewodztwo(), caller.getManagedPowiat(), caller.getManagedGmina());
+            case ADMIN_WOJEWODZTWA -> userRepository.findAdminsByWojewodztwa(
+                    ALL_ADMIN_ROLES, namesOf(caller.getManagedWojewodztwa()));
+            case ADMIN_POWIATU -> userRepository.findAdminsByPowiaty(
+                    ALL_ADMIN_ROLES, namesOfPow(caller.getManagedPowiaty()));
+            case ADMIN_GMINY -> userRepository.findAdminsByGminy(
+                    ALL_ADMIN_ROLES, namesOfGm(caller.getManagedGminy()));
             default -> throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Brak uprawnień");
         };
     }
 
-    /**
-     * Zmienia rolę i/lub obszar zarządzania istniejącego admina.
-     */
     @Transactional
     public User updateAdmin(Long callerId, Long targetId, UpdateAdminRequest req) {
         User caller = userRepository.findById(callerId)
@@ -114,28 +101,15 @@ public class AdminUserService {
                     "Rola " + callerRole.name() + " nie może nadać roli " + targetRole.name());
         }
 
-        GeoRefs refs = resolveGeoRefs(req.managedWojewodztwoId(), req.managedPowiatId(),
-                req.managedGminaId(), req.managedMiastoId(),
-                req.managedWojewodztwo(), req.managedPowiat(), req.managedGmina(), req.managedMiasto());
+        GeoSets geo = resolveAndValidateGeo(targetRole, req.managedWojewodztwoIds(),
+                req.managedPowiatIds(), req.managedGminaIds(), req.managedMiastoIds());
 
-        CreateAdminRequest asCreate = new CreateAdminRequest(
-                target.getEmail(), target.getFirstName(), target.getLastName(), "",
-                req.role(),
-                req.managedWojewodztwo(), req.managedPowiat(), req.managedGmina(), req.managedMiasto(),
-                req.managedWojewodztwoId(), req.managedPowiatId(), req.managedGminaId(), req.managedMiastoId());
-
-        CreateAdminRequest normalized = normalizeReqStrings(asCreate, refs);
-        validateScopeFields(targetRole, normalized);
-        validateCreatorScope(callerRole, caller, targetRole, normalized);
-
-        applyGeoScope(target, targetRole, refs, normalized, callerRole, caller);
+        validateCreatorScope(callerRole, caller, targetRole, geo);
+        applyScope(target, targetRole, geo, callerRole, caller);
 
         return userRepository.save(target);
     }
 
-    /**
-     * Odbiera prawa admina — przywraca rolę USER i zeruje pola obszaru.
-     */
     @Transactional
     public void revokeAdmin(Long callerId, Long targetId) {
         User caller = userRepository.findById(callerId)
@@ -155,175 +129,197 @@ public class AdminUserService {
         }
 
         target.setRole(UserRole.USER.name());
-        target.setManagedWojewodztwo(null);
-        target.setManagedPowiat(null);
-        target.setManagedGmina(null);
-        target.setManagedMiasto(null);
-        target.setManagedWojewodztwoRef(null);
-        target.setManagedPowiatRef(null);
-        target.setManagedGminaRef(null);
-        target.setManagedMiastoRef(null);
+        target.getManagedWojewodztwa().clear();
+        target.getManagedPowiaty().clear();
+        target.getManagedGminy().clear();
+        target.getManagedMiasta().clear();
         userRepository.save(target);
     }
 
     // ---------- geo resolution ----------
 
-    private record GeoRefs(Wojewodztwo woj, Powiat pow, Gmina gm, Miejscowosc miej) {}
+    private record GeoSets(
+            Set<Wojewodztwo> wojew,
+            Set<Powiat> pow,
+            Set<Gmina> gm,
+            Set<Miejscowosc> miej
+    ) {}
 
-    /**
-     * Gdy podano ID — pobiera encję i weryfikuje, że istnieje.
-     * Gdy ID null — zostawia null (string-based fallback zostanie użyty).
-     */
-    private GeoRefs resolveGeoRefs(Long wojId, Long powId, Long gmId, Long miejId,
-                                    String wojStr, String powStr, String gmStr, String mejStr) {
-        Wojewodztwo woj = wojId != null
-                ? wojRepository.findById(wojId)
-                        .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                                "Województwo o id=" + wojId + " nie istnieje"))
-                : null;
-        Powiat pow = powId != null
-                ? powiatRepository.findById(powId)
-                        .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                                "Powiat o id=" + powId + " nie istnieje"))
-                : null;
-        Gmina gm = gmId != null
-                ? gminaRepository.findById(gmId)
-                        .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                                "Gmina o id=" + gmId + " nie istnieje"))
-                : null;
-        Miejscowosc miej = miejId != null
-                ? miejscowoscRepository.findById(miejId)
-                        .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                                "Miejscowość o id=" + miejId + " nie istnieje"))
-                : null;
-        return new GeoRefs(woj, pow, gm, miej);
-    }
+    private GeoSets resolveAndValidateGeo(UserRole targetRole,
+                                           List<Long> wojIds, List<Long> powIds,
+                                           List<Long> gmIds, List<Long> miejIds) {
+        Set<Wojewodztwo> wojew = new HashSet<>();
+        Set<Powiat> pow = new HashSet<>();
+        Set<Gmina> gm = new HashSet<>();
+        Set<Miejscowosc> miej = new HashSet<>();
 
-    /**
-     * Buduje zdenormalizowane stringi z FK encji (jeśli dostępne), lub normalizuje wejściowe stringi.
-     */
-    private CreateAdminRequest normalizeReqStrings(CreateAdminRequest req, GeoRefs refs) {
-        String woj = refs.woj() != null ? refs.woj().getName()
-                : GeoNormalizer.normalizeWojewodztwo(req.managedWojewodztwo());
-        String pow = refs.pow() != null ? refs.pow().getName()
-                : GeoNormalizer.normalizePowiat(req.managedPowiat());
-        String gm = refs.gm() != null ? refs.gm().getName()
-                : GeoNormalizer.normalizeGmina(req.managedGmina());
-        String mej = refs.miej() != null ? refs.miej().getName() : req.managedMiasto();
-        return new CreateAdminRequest(
-                req.email(), req.firstName(), req.lastName(), req.password(), req.role(),
-                woj, pow, gm, mej,
-                req.managedWojewodztwoId(), req.managedPowiatId(), req.managedGminaId(), req.managedMiastoId());
-    }
-
-    /** Ustawia pola scopu na userze (string + FK). Respektuje dziedziczenie od creatora. */
-    private void applyGeoScope(User user, UserRole targetRole, GeoRefs refs,
-                                CreateAdminRequest normalized, UserRole creatorRole, User creator) {
-        String wojStr = resolveWojewodztwoStr(creatorRole, creator, normalized);
-        String powStr = resolvePowiatStr(creatorRole, creator, targetRole, normalized);
-        String gmStr  = resolveGminaStr(creatorRole, creator, targetRole, normalized);
-
-        user.setRole(targetRole.name());
-        user.setManagedWojewodztwo(wojStr);
-        user.setManagedPowiat(powStr);
-        user.setManagedGmina(gmStr);
-        user.setManagedMiasto(targetRole == UserRole.ADMIN_MIASTA ? normalized.managedMiasto() : null);
-
-        // FK refs — dziedziczone od creatora gdy creator niższego szczebla
-        user.setManagedWojewodztwoRef(resolveWojRef(creatorRole, creator, refs));
-        user.setManagedPowiatRef(resolvePowRef(creatorRole, creator, targetRole, refs));
-        user.setManagedGminaRef(resolveGmRef(creatorRole, creator, targetRole, refs));
-        user.setManagedMiastoRef(targetRole == UserRole.ADMIN_MIASTA ? refs.miej() : null);
-    }
-
-    // ---------- scope string resolution ----------
-
-    private String resolveWojewodztwoStr(UserRole creatorRole, User creator, CreateAdminRequest req) {
-        if (creatorRole == UserRole.SUPER_ADMIN) return req.managedWojewodztwo();
-        return creator.getManagedWojewodztwo();
-    }
-
-    private String resolvePowiatStr(UserRole creatorRole, User creator, UserRole targetRole, CreateAdminRequest req) {
-        if (targetRole == UserRole.ADMIN_WOJEWODZTWA) return null;
-        if (creatorRole == UserRole.SUPER_ADMIN || creatorRole == UserRole.ADMIN_WOJEWODZTWA) {
-            return req.managedPowiat();
-        }
-        return creator.getManagedPowiat();
-    }
-
-    private String resolveGminaStr(UserRole creatorRole, User creator, UserRole targetRole, CreateAdminRequest req) {
-        if (targetRole == UserRole.ADMIN_WOJEWODZTWA || targetRole == UserRole.ADMIN_POWIATU) return null;
-        if (creatorRole == UserRole.SUPER_ADMIN || creatorRole == UserRole.ADMIN_WOJEWODZTWA
-                || creatorRole == UserRole.ADMIN_POWIATU) {
-            return req.managedGmina();
-        }
-        return creator.getManagedGmina();
-    }
-
-    // ---------- scope FK ref resolution ----------
-
-    private Wojewodztwo resolveWojRef(UserRole creatorRole, User creator, GeoRefs refs) {
-        if (creatorRole == UserRole.SUPER_ADMIN) return refs.woj();
-        return creator.getManagedWojewodztwoRef();
-    }
-
-    private Powiat resolvePowRef(UserRole creatorRole, User creator, UserRole targetRole, GeoRefs refs) {
-        if (targetRole == UserRole.ADMIN_WOJEWODZTWA) return null;
-        if (creatorRole == UserRole.SUPER_ADMIN || creatorRole == UserRole.ADMIN_WOJEWODZTWA) {
-            return refs.pow();
-        }
-        return creator.getManagedPowiatRef();
-    }
-
-    private Gmina resolveGmRef(UserRole creatorRole, User creator, UserRole targetRole, GeoRefs refs) {
-        if (targetRole == UserRole.ADMIN_WOJEWODZTWA || targetRole == UserRole.ADMIN_POWIATU) return null;
-        if (creatorRole == UserRole.SUPER_ADMIN || creatorRole == UserRole.ADMIN_WOJEWODZTWA
-                || creatorRole == UserRole.ADMIN_POWIATU) {
-            return refs.gm();
-        }
-        return creator.getManagedGminaRef();
-    }
-
-    // ---------- walidacja ----------
-
-    private void validateScopeFields(UserRole targetRole, CreateAdminRequest req) {
         switch (targetRole) {
-            case ADMIN_WOJEWODZTWA -> requireField(req.managedWojewodztwo(), "managedWojewodztwo");
-            case ADMIN_POWIATU -> {
-                requireField(req.managedWojewodztwo(), "managedWojewodztwo");
-                requireField(req.managedPowiat(), "managedPowiat");
+            case ADMIN_MIASTA -> {
+                requireIds(wojIds, "managedWojewodztwoIds");
+                requireIds(powIds, "managedPowiatIds");
+                requireIds(gmIds, "managedGminaIds");
+                requireIds(miejIds, "managedMiastoIds");
+                wojew = resolveSet(wojIds, wojRepository, "Województwo");
+                pow = resolveSetPow(powIds);
+                gm = resolveSetGm(gmIds);
+                miej = resolveSetMiej(miejIds);
             }
             case ADMIN_GMINY -> {
-                requireField(req.managedWojewodztwo(), "managedWojewodztwo");
-                requireField(req.managedPowiat(), "managedPowiat");
-                requireField(req.managedGmina(), "managedGmina");
+                requireIds(wojIds, "managedWojewodztwoIds");
+                requireIds(powIds, "managedPowiatIds");
+                requireIds(gmIds, "managedGminaIds");
+                wojew = resolveSet(wojIds, wojRepository, "Województwo");
+                pow = resolveSetPow(powIds);
+                gm = resolveSetGm(gmIds);
             }
+            case ADMIN_POWIATU -> {
+                requireIds(wojIds, "managedWojewodztwoIds");
+                requireIds(powIds, "managedPowiatIds");
+                wojew = resolveSet(wojIds, wojRepository, "Województwo");
+                pow = resolveSetPow(powIds);
+            }
+            case ADMIN_WOJEWODZTWA -> {
+                requireIds(wojIds, "managedWojewodztwoIds");
+                wojew = resolveSet(wojIds, wojRepository, "Województwo");
+            }
+            default -> { /* SUPER_ADMIN — brak pól */ }
+        }
+
+        return new GeoSets(wojew, pow, gm, miej);
+    }
+
+    private Set<Wojewodztwo> resolveSet(List<Long> ids, WojewodztwoRepository repo, String label) {
+        Set<Wojewodztwo> result = new HashSet<>();
+        for (Long id : ids) {
+            result.add(repo.findById(id).orElseThrow(
+                    () -> new ResponseStatusException(HttpStatus.BAD_REQUEST, label + " id=" + id + " nie istnieje")));
+        }
+        return result;
+    }
+
+    private Set<Powiat> resolveSetPow(List<Long> ids) {
+        Set<Powiat> result = new HashSet<>();
+        for (Long id : ids) {
+            result.add(powiatRepository.findById(id).orElseThrow(
+                    () -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Powiat id=" + id + " nie istnieje")));
+        }
+        return result;
+    }
+
+    private Set<Gmina> resolveSetGm(List<Long> ids) {
+        Set<Gmina> result = new HashSet<>();
+        for (Long id : ids) {
+            result.add(gminaRepository.findById(id).orElseThrow(
+                    () -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Gmina id=" + id + " nie istnieje")));
+        }
+        return result;
+    }
+
+    private Set<Miejscowosc> resolveSetMiej(List<Long> ids) {
+        Set<Miejscowosc> result = new HashSet<>();
+        for (Long id : ids) {
+            result.add(miejscowoscRepository.findById(id).orElseThrow(
+                    () -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Miejscowość id=" + id + " nie istnieje")));
+        }
+        return result;
+    }
+
+    // ---------- scope enforcement ----------
+
+    /**
+     * Aplikuje zasięg do usera. Dla ról niższych niż caller dziedziny wyższe
+     * są wymuszane z konta creatora (creator nie może rozszerzyć swojego własnego zasięgu).
+     */
+    private void applyScope(User user, UserRole targetRole, GeoSets geo,
+                             UserRole creatorRole, User creator) {
+        user.setRole(targetRole.name());
+        user.getManagedWojewodztwa().clear();
+        user.getManagedPowiaty().clear();
+        user.getManagedGminy().clear();
+        user.getManagedMiasta().clear();
+
+        switch (targetRole) {
             case ADMIN_MIASTA -> {
-                requireField(req.managedWojewodztwo(), "managedWojewodztwo");
-                requireField(req.managedPowiat(), "managedPowiat");
-                requireField(req.managedGmina(), "managedGmina");
-                requireField(req.managedMiasto(), "managedMiasto");
+                user.getManagedWojewodztwa().addAll(inheritWojew(creatorRole, creator, geo));
+                user.getManagedPowiaty().addAll(inheritPow(creatorRole, creator, geo));
+                user.getManagedGminy().addAll(inheritGm(creatorRole, creator, geo));
+                user.getManagedMiasta().addAll(geo.miej());
             }
-            default -> { /* SUPER_ADMIN — brak pól scope */ }
+            case ADMIN_GMINY -> {
+                user.getManagedWojewodztwa().addAll(inheritWojew(creatorRole, creator, geo));
+                user.getManagedPowiaty().addAll(inheritPow(creatorRole, creator, geo));
+                user.getManagedGminy().addAll(geo.gm());
+            }
+            case ADMIN_POWIATU -> {
+                user.getManagedWojewodztwa().addAll(inheritWojew(creatorRole, creator, geo));
+                user.getManagedPowiaty().addAll(geo.pow());
+            }
+            case ADMIN_WOJEWODZTWA -> user.getManagedWojewodztwa().addAll(geo.wojew());
+            default -> { /* SUPER_ADMIN — brak zasięgu */ }
         }
     }
 
+    private Set<Wojewodztwo> inheritWojew(UserRole cRole, User creator, GeoSets geo) {
+        return cRole == UserRole.SUPER_ADMIN ? geo.wojew() : creator.getManagedWojewodztwa();
+    }
+
+    private Set<Powiat> inheritPow(UserRole cRole, User creator, GeoSets geo) {
+        return (cRole == UserRole.SUPER_ADMIN || cRole == UserRole.ADMIN_WOJEWODZTWA)
+                ? geo.pow() : creator.getManagedPowiaty();
+    }
+
+    private Set<Gmina> inheritGm(UserRole cRole, User creator, GeoSets geo) {
+        return (cRole == UserRole.SUPER_ADMIN || cRole == UserRole.ADMIN_WOJEWODZTWA
+                || cRole == UserRole.ADMIN_POWIATU)
+                ? geo.gm() : creator.getManagedGminy();
+    }
+
+    // ---------- scope validation ----------
+
+    /**
+     * Nowy admin nie może dostać zasięgu wykraczającego poza zasięg creatora.
+     * SUPER_ADMIN nie ma ograniczeń.
+     */
     private void validateCreatorScope(UserRole creatorRole, User creator,
-                                      UserRole targetRole, CreateAdminRequest req) {
+                                       UserRole targetRole, GeoSets geo) {
         if (creatorRole == UserRole.SUPER_ADMIN) return;
 
         if (creatorRole.ordinal() >= UserRole.ADMIN_WOJEWODZTWA.ordinal()) {
-            assertScopeMatch(creator.getManagedWojewodztwo(), req.managedWojewodztwo(), "managedWojewodztwo");
+            assertSubset(namesOf(creator.getManagedWojewodztwa()),
+                    namesOf(geo.wojew()), "managedWojewodztwoIds");
         }
-        if (creatorRole.ordinal() >= UserRole.ADMIN_POWIATU.ordinal()) {
-            if (targetRole.ordinal() < UserRole.ADMIN_POWIATU.ordinal()
-                    || targetRole == UserRole.ADMIN_POWIATU) {
-                assertScopeMatch(creator.getManagedPowiat(), req.managedPowiat(), "managedPowiat");
-            }
+        if (creatorRole.ordinal() >= UserRole.ADMIN_POWIATU.ordinal()
+                && targetRole.ordinal() <= UserRole.ADMIN_POWIATU.ordinal()) {
+            assertSubset(namesOfPow(creator.getManagedPowiaty()),
+                    namesOfPow(geo.pow()), "managedPowiatIds");
         }
         if (creatorRole == UserRole.ADMIN_GMINY) {
-            assertScopeMatch(creator.getManagedGmina(), req.managedGmina(), "managedGmina");
+            assertSubset(namesOfGm(creator.getManagedGminy()),
+                    namesOfGm(geo.gm()), "managedGminaIds");
         }
+    }
+
+    private static void assertSubset(Set<String> creatorScope, Set<String> requestedScope, String field) {
+        for (String v : requestedScope) {
+            if (!creatorScope.contains(v)) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                        "Wartość '" + v + "' w polu " + field + " wykracza poza Twój zasięg");
+            }
+        }
+    }
+
+    // ---------- name helpers ----------
+
+    static Set<String> namesOf(Collection<Wojewodztwo> items) {
+        return items.stream().map(Wojewodztwo::getName).collect(Collectors.toSet());
+    }
+
+    static Set<String> namesOfPow(Collection<Powiat> items) {
+        return items.stream().map(Powiat::getName).collect(Collectors.toSet());
+    }
+
+    static Set<String> namesOfGm(Collection<Gmina> items) {
+        return items.stream().map(Gmina::getName).collect(Collectors.toSet());
     }
 
     // ---------- helpers ----------
@@ -336,19 +332,10 @@ public class AdminUserService {
         }
     }
 
-    private static void requireField(String value, String fieldName) {
-        if (value == null || value.isBlank()) {
+    private static void requireIds(List<Long> ids, String fieldName) {
+        if (ids == null || ids.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "Pole " + fieldName + " jest wymagane dla tej roli");
-        }
-    }
-
-    private static void assertScopeMatch(String creatorValue, String requestValue, String fieldName) {
-        String a = creatorValue == null ? null : creatorValue.trim().toLowerCase(java.util.Locale.ROOT);
-        String b = requestValue == null  ? null : requestValue.trim().toLowerCase(java.util.Locale.ROOT);
-        if (a == null || !a.equals(b)) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
-                    "Pole " + fieldName + " musi zgadzać się z obszarem zarządzanym przez Twoje konto");
+                    "Pole " + fieldName + " musi zawierać co najmniej jeden element dla tej roli");
         }
     }
 }

@@ -1,14 +1,12 @@
 package com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa;
 
-import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.Gmina;
-import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.Miejscowosc;
-import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.Powiat;
-import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.Wojewodztwo;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+import java.util.HashSet;
+import java.util.Set;
 import java.util.UUID;
 
 @Entity
@@ -51,82 +49,58 @@ public class User {
     @Column(name = "webauthn_user_handle", nullable = true, unique = true, columnDefinition = "BINARY(16)")
     private byte[] webauthnUserHandle;
 
-    /**
-     * TOTP (Time-based One-Time Password) shared secret in Base32 encoding.
-     * Null when TOTP has not been configured for this account.
-     */
     @Column(name = "totp_secret", nullable = true, length = 100)
     private String totpSecret;
 
-    /**
-     * Whether TOTP 2FA is active for this account.
-     * When true: login requires a TOTP code in addition to password.
-     * Mandatory for ADMIN role; optional for USER role.
-     */
     @Column(name = "totp_enabled", nullable = false)
     private boolean totpEnabled = false;
 
-    /**
-     * Whether email OTP 2FA is active for this account.
-     * When true: login requires a one-time code sent to the user's email.
-     * Disabled by default — user enables it (or TOTP / passkey) via account settings.
-     * Mandatory for all admin roles; optional for USER role.
-     */
     @Column(name = "email_otp_enabled", nullable = false)
     private boolean emailOtpEnabled = false;
 
-    /** Województwo zarządzane przez admina (null dla USER i SUPER_ADMIN). */
-    @Column(name = "managed_wojewodztwo", length = 100)
-    private String managedWojewodztwo;
+    /** Województwa zarządzane przez admina — może być wiele. */
+    @ManyToMany(fetch = FetchType.LAZY)
+    @JoinTable(
+            name = "user_managed_wojew",
+            joinColumns = @JoinColumn(name = "user_id"),
+            inverseJoinColumns = @JoinColumn(name = "wojew_id")
+    )
+    private Set<Wojewodztwo> managedWojewodztwa = new HashSet<>();
 
-    /** Powiat zarządzany przez admina (wymagany dla ADMIN_POWIATU i niżej). */
-    @Column(name = "managed_powiat", length = 100)
-    private String managedPowiat;
+    /** Powiaty zarządzane przez admina. */
+    @ManyToMany(fetch = FetchType.LAZY)
+    @JoinTable(
+            name = "user_managed_powiaty",
+            joinColumns = @JoinColumn(name = "user_id"),
+            inverseJoinColumns = @JoinColumn(name = "powiat_id")
+    )
+    private Set<Powiat> managedPowiaty = new HashSet<>();
 
-    /** Gmina zarządzana przez admina (wymagana dla ADMIN_GMINY i niżej). */
-    @Column(name = "managed_gmina", length = 100)
-    private String managedGmina;
+    /** Gminy zarządzane przez admina. */
+    @ManyToMany(fetch = FetchType.LAZY)
+    @JoinTable(
+            name = "user_managed_gminy",
+            joinColumns = @JoinColumn(name = "user_id"),
+            inverseJoinColumns = @JoinColumn(name = "gmina_id")
+    )
+    private Set<Gmina> managedGminy = new HashSet<>();
 
-    /** Miasto zarządzane przez admina (wymagane dla ADMIN_MIASTA). */
-    @Column(name = "managed_miasto", length = 100)
-    private String managedMiasto;
-
-    /** FK do znormalizowanej tabeli województw (null dla USER i SUPER_ADMIN). */
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "managed_wojewodztwo_id")
-    private Wojewodztwo managedWojewodztwoRef;
-
-    /** FK do znormalizowanej tabeli powiatów. */
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "managed_powiat_id")
-    private Powiat managedPowiatRef;
-
-    /** FK do znormalizowanej tabeli gmin. */
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "managed_gmina_id")
-    private Gmina managedGminaRef;
-
-    /** FK do znormalizowanej tabeli miejscowości (wymagane dla ADMIN_MIASTA). */
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "managed_miasto_id")
-    private Miejscowosc managedMiastoRef;
+    /** Miejscowości zarządzane przez admina (poziom ADMIN_MIASTA). */
+    @ManyToMany(fetch = FetchType.LAZY)
+    @JoinTable(
+            name = "user_managed_miasta",
+            joinColumns = @JoinColumn(name = "user_id"),
+            inverseJoinColumns = @JoinColumn(name = "miasto_id")
+    )
+    private Set<Miejscowosc> managedMiasta = new HashSet<>();
 
     /** Gdy true — użytkownik musi zmienić hasło przy najbliższym logowaniu (ustawiane przez admina). */
     @Column(name = "must_change_password", nullable = false)
     private boolean mustChangePassword = false;
 
-    /**
-     * Preferowana metoda 2FA wyświetlana jako pierwsza podczas logowania.
-     * Wartości: "TOTP", "EMAIL_OTP", "PASSKEY" lub null (automatycznie — pierwsza dostępna).
-     * Czyszczona automatycznie, gdy dana metoda zostaje wyłączona.
-     */
     @Column(name = "two_factor_default_method", nullable = true, length = 20)
     private String twoFactorDefaultMethod;
 
-    /**
-     * Ensures a webauthnUserHandle is assigned. Call before any WebAuthn ceremony.
-     * Idempotent — safe to call multiple times.
-     */
     public void ensureWebauthnUserHandle() {
         if (this.webauthnUserHandle == null) {
             UUID uuid = UUID.randomUUID();

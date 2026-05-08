@@ -17,6 +17,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Panel admina — moderacja komentarzy i obsługa zgłoszeń.
@@ -61,7 +62,7 @@ public class AdminCommentController {
             @AuthenticationPrincipal AuthPrincipal principal
     ) {
         requireAdmin(principal);
-        commentService.deleteAsAdmin(commentId, principal.adminScopeColumn(), principal.adminScopeValue());
+        commentService.deleteAsAdmin(commentId, principal.adminScopeColumn(), principal.adminScopeValues());
         return ResponseEntity.ok(SuccessResponse.of(null));
     }
 
@@ -80,7 +81,7 @@ public class AdminCommentController {
         Page<CommentReportResponse> result = commentService.listReports(
                 status,
                 principal.adminScopeColumn(),
-                principal.adminScopeValue(),
+                principal.adminScopeValues(),
                 safePage, safeSize
         );
         return ResponseEntity.ok(SuccessResponse.of(new AdminReportListResponse(
@@ -107,7 +108,7 @@ public class AdminCommentController {
                 body == null ? null : body.adminNote(),
                 body != null && body.deleteComment(),
                 principal.adminScopeColumn(),
-                principal.adminScopeValue()
+                principal.adminScopeValues()
         );
         return ResponseEntity.ok(SuccessResponse.of(Map.of("report", updated)));
     }

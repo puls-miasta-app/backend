@@ -20,6 +20,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDateTime;
 import java.util.Locale;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
@@ -70,10 +71,10 @@ public class PulseReportService {
 
     @Transactional(readOnly = true)
     public Page<PulseReportResponse> listReports(
-            String rawStatus, String scopeColumn, String scopeValue, int page, int size) {
+            String rawStatus, String scopeColumn, Set<String> scopeValues, int page, int size) {
         PulseReportStatus status = parseStatus(rawStatus);
         PageRequest pageable = PageRequest.of(page, size);
-        return reportRepository.findInScope(status, scopeColumn, scopeValue, pageable)
+        return reportRepository.findInScope(status, scopeColumn, scopeValues, pageable)
                 .map(PulseReportService::toReportResponse);
     }
 
@@ -86,7 +87,7 @@ public class PulseReportService {
     public PulseReportResponse reviewReport(Long reportId, Long adminId,
                                              String rawStatus, String adminNote,
                                              boolean rejectPulse,
-                                             String scopeColumn, String scopeValue) {
+                                             String scopeColumn, Set<String> scopeValues) {
         if (adminNote != null && adminNote.length() > MAX_ADMIN_NOTE) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "Admin note too long (max " + MAX_ADMIN_NOTE + " chars)");
@@ -95,7 +96,7 @@ public class PulseReportService {
         PulseReport report = reportRepository.findByIdWithPulse(reportId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Report not found"));
 
-        requirePulseInScope(report.getPulse(), scopeColumn, scopeValue);
+        requirePulseInScope(report.getPulse(), scopeColumn, scopeValues);
 
         PulseReportStatus newStatus = parseStatus(rawStatus);
         if (newStatus == null || newStatus == PulseReportStatus.PENDING) {
@@ -118,8 +119,8 @@ public class PulseReportService {
 
     // ─── Helpers ───────────────────────────────────────────────────────────────
 
-    private static void requirePulseInScope(Pulse pulse, String scopeColumn, String scopeValue) {
-        if (scopeColumn == null) return;
+    private static void requirePulseInScope(Pulse pulse, String scopeColumn, Set<String> scopeValues) {
+        if (scopeColumn == null || scopeValues == null || scopeValues.isEmpty()) return;
         String pulseVal = switch (scopeColumn) {
             case "city"        -> pulse.getCity();
             case "gmina"       -> pulse.getGmina();
@@ -128,7 +129,7 @@ public class PulseReportService {
             default -> throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "Unknown scope column: " + scopeColumn);
         };
-        if (scopeValue != null && !scopeValue.equalsIgnoreCase(pulseVal)) {
+        if (scopeValues.stream().noneMatch(v -> v.equalsIgnoreCase(pulseVal))) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN,
                     "Pulse is not in your managed area");
         }

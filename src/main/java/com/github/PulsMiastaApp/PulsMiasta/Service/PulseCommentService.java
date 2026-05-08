@@ -197,10 +197,10 @@ public class PulseCommentService {
     }
 
     @Transactional
-    public void deleteAsAdmin(Long commentId, String scopeColumn, String scopeValue) {
+    public void deleteAsAdmin(Long commentId, String scopeColumn, Set<String> scopeValues) {
         PulseComment c = commentRepository.findById(commentId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Comment not found"));
-        requireCommentInScope(c.getPulse(), scopeColumn, scopeValue);
+        requireCommentInScope(c.getPulse(), scopeColumn, scopeValues);
         if (c.getDeletedAt() != null) return;
         softDelete(c);
     }
@@ -286,10 +286,10 @@ public class PulseCommentService {
 
     @Transactional(readOnly = true)
     public Page<CommentReportResponse> listReports(
-            String rawStatus, String scopeColumn, String scopeValue, int page, int size) {
+            String rawStatus, String scopeColumn, Set<String> scopeValues, int page, int size) {
         CommentReportStatus status = parseStatus(rawStatus);
         PageRequest pageable = PageRequest.of(page, size);
-        return reportRepository.findInScope(status, scopeColumn, scopeValue, pageable)
+        return reportRepository.findInScope(status, scopeColumn, scopeValues, pageable)
                 .map(PulseCommentService::toReportResponse);
     }
 
@@ -302,7 +302,7 @@ public class PulseCommentService {
     public CommentReportResponse reviewReport(Long reportId, Long adminId,
                                                String rawStatus, String adminNote,
                                                boolean deleteComment,
-                                               String scopeColumn, String scopeValue) {
+                                               String scopeColumn, Set<String> scopeValues) {
         if (adminNote != null && adminNote.length() > MAX_ADMIN_NOTE) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "Admin note too long (max " + MAX_ADMIN_NOTE + " chars)");
@@ -313,7 +313,7 @@ public class PulseCommentService {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Report not found"));
 
         // Scope check na załadowanej encji — bez dodatkowego query
-        requireCommentInScope(report.getComment().getPulse(), scopeColumn, scopeValue);
+        requireCommentInScope(report.getComment().getPulse(), scopeColumn, scopeValues);
 
         CommentReportStatus newStatus = parseStatus(rawStatus);
         if (newStatus == null || newStatus == CommentReportStatus.PENDING) {
@@ -395,8 +395,8 @@ public class PulseCommentService {
         return likeRepository.findLikedCommentIds(userId, ids);
     }
 
-    private static void requireCommentInScope(Pulse pulse, String scopeColumn, String scopeValue) {
-        if (scopeColumn == null) return;
+    private static void requireCommentInScope(Pulse pulse, String scopeColumn, Set<String> scopeValues) {
+        if (scopeColumn == null || scopeValues == null || scopeValues.isEmpty()) return;
         String pulseVal = switch (scopeColumn) {
             case "city"        -> pulse.getCity();
             case "gmina"       -> pulse.getGmina();
@@ -405,7 +405,7 @@ public class PulseCommentService {
             default -> throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "Unknown scope column: " + scopeColumn);
         };
-        if (scopeValue != null && !scopeValue.equalsIgnoreCase(pulseVal)) {
+        if (scopeValues.stream().noneMatch(v -> v.equalsIgnoreCase(pulseVal))) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN,
                     "Comment's pulse is not in your managed area");
         }

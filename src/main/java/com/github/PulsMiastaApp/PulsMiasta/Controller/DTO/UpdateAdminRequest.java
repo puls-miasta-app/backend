@@ -2,15 +2,12 @@ package com.github.PulsMiastaApp.PulsMiasta.Controller.DTO;
 
 import jakarta.validation.constraints.NotBlank;
 
+import java.util.List;
+
 public record UpdateAdminRequest(
         @NotBlank String role,
-        /** Preferuj managedWojewodztwoId — string akceptowany dla wstecznej zgodności */
-        String managedWojewodztwo,
-        String managedPowiat,
-        String managedGmina,
-        String managedMiasto,
-        Long managedWojewodztwoId,
-        Long managedPowiatId,
-        Long managedGminaId,
-        Long managedMiastoId
+        List<Long> managedWojewodztwoIds,
+        List<Long> managedPowiatIds,
+        List<Long> managedGminaIds,
+        List<Long> managedMiastoIds
 ) {}

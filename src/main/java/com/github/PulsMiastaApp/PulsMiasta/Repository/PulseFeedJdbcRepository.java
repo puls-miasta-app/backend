@@ -255,11 +255,11 @@ public class PulseFeedJdbcRepository {
 
     public Page<Pulse> findForAdmin(PulseStatus status, PulseCategory category,
                                     PulsePriority priority,
-                                    String scopeColumn, String scopeValue,
+                                    String scopeColumn, java.util.Set<String> scopeValues,
                                     Pageable pageable) {
         StringBuilder where = new StringBuilder(" WHERE p.merged_into_pulse_id IS NULL");
         List<Object> params = new ArrayList<>();
-        if (scopeColumn != null && scopeValue != null) {
+        if (scopeColumn != null && scopeValues != null && !scopeValues.isEmpty()) {
             String col = switch (scopeColumn) {
                 case "city" -> "p.city";
                 case "gmina" -> "p.gmina";
@@ -267,8 +267,10 @@ public class PulseFeedJdbcRepository {
                 case "wojewodztwo" -> "p.wojewodztwo";
                 default -> throw new IllegalArgumentException("Unknown scope column: " + scopeColumn);
             };
-            where.append(" AND ").append(col).append(" = ?");
-            params.add(scopeValue);
+            String placeholders = scopeValues.stream().map(v -> "?")
+                    .collect(java.util.stream.Collectors.joining(","));
+            where.append(" AND ").append(col).append(" IN (").append(placeholders).append(")");
+            params.addAll(scopeValues);
         }
         if (status != null) { where.append(" AND p.status = ?"); params.add(status.name()); }
         if (category != null) { where.append(" AND p.category = ?"); params.add(category.name()); }

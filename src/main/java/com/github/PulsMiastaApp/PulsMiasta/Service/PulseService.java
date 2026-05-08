@@ -255,10 +255,10 @@ public class PulseService {
     @Transactional(readOnly = true)
     public Page<Pulse> listForAdmin(PulseStatus status, PulseCategory category, PulsePriority priority,
                                     int page, int size,
-                                    String scopeColumn, String scopeValue) {
+                                    String scopeColumn, java.util.Set<String> scopeValues) {
         var pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
         return pulseFeedJdbcRepository.findForAdmin(status, category, priority,
-                scopeColumn, scopeValue, pageable);
+                scopeColumn, scopeValues, pageable);
     }
 
     // ---------- VOTES ----------
