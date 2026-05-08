@@ -40,11 +40,11 @@ class AuthTokenFilterTest {
     @Mock
     private FilterChain filterChain;
 
-    @InjectMocks
     private AuthTokenFilter filter;
 
     @BeforeEach
     void setUp() {
+        filter = new AuthTokenFilter(tokenService, userRepository, 15, false, "Lax");
         SecurityContextHolder.clearContext();
     }
 
