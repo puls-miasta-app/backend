@@ -30,6 +30,7 @@ import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBo
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Endpointy tylko dla użytkowników z rolą ADMIN (gate w {@code SecurityConfig}:
@@ -58,7 +59,7 @@ public class AdminPulseController {
                 parseEnum(category, PulseCategory.class, "category"),
                 parseEnum(priority, PulsePriority.class, "priority"),
                 page, size,
-                principal.adminScopeColumn(), principal.adminScopeValue());
+                principal.adminScopeColumn(), principal.adminScopeValues());
 
         List<PulseResponse> items = pulses.getContent().stream()
                 .map(PulseMapper::toResponse)
@@ -123,7 +124,8 @@ public class AdminPulseController {
     private static void requirePulseInScope(Pulse pulse, AuthPrincipal principal) {
         String col = principal.adminScopeColumn();
         if (col == null) return;
-        String adminVal = principal.adminScopeValue();
+        Set<String> scopeValues = principal.adminScopeValues();
+        if (scopeValues.isEmpty()) return;
         String pulseVal = switch (col) {
             case "city"        -> pulse.getCity();
             case "gmina"       -> pulse.getGmina();

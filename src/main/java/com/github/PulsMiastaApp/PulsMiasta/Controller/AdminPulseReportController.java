@@ -16,6 +16,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Panel admina — zgłoszenia pulsów od społeczności.
@@ -48,7 +49,7 @@ public class AdminPulseReportController {
         Page<PulseReportResponse> result = pulseReportService.listReports(
                 status,
                 principal.adminScopeColumn(),
-                principal.adminScopeValue(),
+                principal.adminScopeValues(),
                 safePage, safeSize
         );
         return ResponseEntity.ok(SuccessResponse.of(new PulseReportListResponse(
@@ -79,7 +80,7 @@ public class AdminPulseReportController {
                 body == null ? null : body.adminNote(),
                 body != null && body.rejectPulse(),
                 principal.adminScopeColumn(),
-                principal.adminScopeValue()
+                principal.adminScopeValues()
         );
         return ResponseEntity.ok(SuccessResponse.of(Map.of("report", updated)));
     }

@@ -1,6 +1,10 @@
 package com.github.PulsMiastaApp.PulsMiasta.Security.Model;
 
+import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.Gmina;
+import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.Miejscowosc;
+import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.Powiat;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.User;
+import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.Wojewodztwo;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Enums.UserRole;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -8,11 +12,13 @@ import org.springframework.security.core.userdetails.UserDetails;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
- * Immutable principal record stored in the SecurityContext.
- * Implements UserDetails so Spring Security utilities (e.g. @AuthenticationPrincipal) work out of the box.
- * Obtain via: @AuthenticationPrincipal AuthPrincipal principal
+ * Immutable principal stored in the SecurityContext.
+ * Scope fields hold sets of names (lowercase, normalized) so a single admin
+ * can manage multiple województwa/powiaty/gminy/miejscowości simultaneously.
  */
 public record AuthPrincipal(
         Long id,
@@ -21,13 +27,21 @@ public record AuthPrincipal(
         String lastName,
         String role,
         boolean emailVerified,
-        String managedWojewodztwo,
-        String managedPowiat,
-        String managedGmina,
-        String managedMiasto
+        Set<String> managedWojewodztwa,
+        Set<String> managedPowiaty,
+        Set<String> managedGminy,
+        Set<String> managedMiasta
 ) implements UserDetails {
 
     public static AuthPrincipal from(User user) {
+        Set<String> wojew = user.getManagedWojewodztwa().stream()
+                .map(Wojewodztwo::getName).collect(Collectors.toUnmodifiableSet());
+        Set<String> pow = user.getManagedPowiaty().stream()
+                .map(Powiat::getName).collect(Collectors.toUnmodifiableSet());
+        Set<String> gm = user.getManagedGminy().stream()
+                .map(Gmina::getName).collect(Collectors.toUnmodifiableSet());
+        Set<String> miej = user.getManagedMiasta().stream()
+                .map(Miejscowosc::getName).collect(Collectors.toUnmodifiableSet());
         return new AuthPrincipal(
                 user.getId(),
                 user.getEmail(),
@@ -35,10 +49,7 @@ public record AuthPrincipal(
                 user.getLastName(),
                 user.getRole(),
                 user.isEmailVerified(),
-                user.getManagedWojewodztwo(),
-                user.getManagedPowiat(),
-                user.getManagedGmina(),
-                user.getManagedMiasto()
+                wojew, pow, gm, miej
         );
     }
 
@@ -69,16 +80,16 @@ public record AuthPrincipal(
     }
 
     /**
-     * Wartość do filtrowania (znormalizowana — musi pasować do wartości w pulses).
-     * null = brak filtra.
+     * Zbiór wartości do filtrowania pulses wg zasięgu admina.
+     * Pusty zbiór = brak ograniczeń (SUPER_ADMIN lub USER).
      */
-    public String adminScopeValue() {
+    public Set<String> adminScopeValues() {
         return switch (userRole()) {
-            case ADMIN_MIASTA      -> managedMiasto;
-            case ADMIN_GMINY       -> managedGmina;
-            case ADMIN_POWIATU     -> managedPowiat;
-            case ADMIN_WOJEWODZTWA -> managedWojewodztwo;
-            default                -> null;
+            case ADMIN_MIASTA      -> managedMiasta;
+            case ADMIN_GMINY       -> managedGminy;
+            case ADMIN_POWIATU     -> managedPowiaty;
+            case ADMIN_WOJEWODZTWA -> managedWojewodztwa;
+            default                -> Set.of();
         };
     }
 
@@ -87,7 +98,6 @@ public record AuthPrincipal(
         return List.of(new SimpleGrantedAuthority("ROLE_" + role));
     }
 
-    // UserDetails — password not exposed through the principal
     @Override
     public String getPassword() {
         return null;

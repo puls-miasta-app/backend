@@ -64,10 +64,7 @@ public class AdminUserController {
             @AuthenticationPrincipal AuthPrincipal principal
     ) {
         requireAdmin(principal);
-        List<AdminUserResponse> admins = adminUserService.listAdminsInScope(principal.id())
-                .stream()
-                .map(AdminUserResponse::from)
-                .toList();
+        List<AdminUserResponse> admins = adminUserService.listAdminsInScope(principal.id());
         return ResponseEntity.ok(SuccessResponse.of(Map.of("admins", admins)));
     }
 

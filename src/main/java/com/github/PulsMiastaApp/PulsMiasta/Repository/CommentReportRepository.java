@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
 import java.util.Optional;
 
 public interface CommentReportRepository extends JpaRepository<CommentReport, Long> {
@@ -26,10 +27,10 @@ public interface CommentReportRepository extends JpaRepository<CommentReport, Lo
             LEFT JOIN FETCH r.reviewedBy
             WHERE (:status IS NULL OR r.status = :status)
               AND (:scopeColumn IS NULL OR
-                  (:scopeColumn = 'city'        AND p.city        = :scopeValue) OR
-                  (:scopeColumn = 'gmina'       AND p.gmina       = :scopeValue) OR
-                  (:scopeColumn = 'powiat'      AND p.powiat      = :scopeValue) OR
-                  (:scopeColumn = 'wojewodztwo' AND p.wojewodztwo = :scopeValue))
+                  (:scopeColumn = 'city'        AND p.city        IN :scopeValues) OR
+                  (:scopeColumn = 'gmina'       AND p.gmina       IN :scopeValues) OR
+                  (:scopeColumn = 'powiat'      AND p.powiat      IN :scopeValues) OR
+                  (:scopeColumn = 'wojewodztwo' AND p.wojewodztwo IN :scopeValues))
             ORDER BY r.createdAt DESC
             """,
             countQuery = """
@@ -38,15 +39,15 @@ public interface CommentReportRepository extends JpaRepository<CommentReport, Lo
             JOIN c.pulse p
             WHERE (:status IS NULL OR r.status = :status)
               AND (:scopeColumn IS NULL OR
-                  (:scopeColumn = 'city'        AND p.city        = :scopeValue) OR
-                  (:scopeColumn = 'gmina'       AND p.gmina       = :scopeValue) OR
-                  (:scopeColumn = 'powiat'      AND p.powiat      = :scopeValue) OR
-                  (:scopeColumn = 'wojewodztwo' AND p.wojewodztwo = :scopeValue))
+                  (:scopeColumn = 'city'        AND p.city        IN :scopeValues) OR
+                  (:scopeColumn = 'gmina'       AND p.gmina       IN :scopeValues) OR
+                  (:scopeColumn = 'powiat'      AND p.powiat      IN :scopeValues) OR
+                  (:scopeColumn = 'wojewodztwo' AND p.wojewodztwo IN :scopeValues))
             """)
     Page<CommentReport> findInScope(
             @Param("status") CommentReportStatus status,
             @Param("scopeColumn") String scopeColumn,
-            @Param("scopeValue") String scopeValue,
+            @Param("scopeValues") Collection<String> scopeValues,
             Pageable pageable);
 
     /**
