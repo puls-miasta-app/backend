@@ -89,8 +89,10 @@ public class AdminUserService {
                     caller.getManagedGminy().stream().map(Gmina::getId).toList());
             default -> throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Brak uprawnień");
         };
-        // Map to DTO within the transaction — initialises lazy geo collections safely
-        return users.stream().map(AdminUserResponse::from).toList();
+        // Batch-load geo collections in ONE query to avoid N+1 (1 query per managed area per user)
+        List<Long> ids = users.stream().map(User::getId).toList();
+        List<User> withGeo = ids.isEmpty() ? List.of() : userRepository.findByIdsWithGeo(ids);
+        return withGeo.stream().map(AdminUserResponse::from).toList();
     }
 
     @Transactional

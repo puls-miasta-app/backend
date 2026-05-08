@@ -1,9 +1,6 @@
 package com.github.PulsMiastaApp.PulsMiasta.Controller;
 
 import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.*;
-import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.Gmina;
-import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.Powiat;
-import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.Wojewodztwo;
 import com.github.PulsMiastaApp.PulsMiasta.Repository.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
@@ -32,20 +29,18 @@ public class GeoController {
 
     @GetMapping("/wojewodztwa")
     public ResponseEntity<SuccessResponse<List<WojewodztwoResponse>>> getWojewodztwa() {
-        List<WojewodztwoResponse> list = wojRepository.findAll()
-                .stream()
-                .sorted((a, b) -> a.getName().compareToIgnoreCase(b.getName()))
-                .map(WojewodztwoResponse::from)
-                .toList();
+        List<WojewodztwoResponse> list = wojRepository.findAllByOrderByNameAsc()
+                .stream().map(WojewodztwoResponse::from).toList();
         return ResponseEntity.ok(SuccessResponse.of(list));
     }
 
     @GetMapping("/powiaty")
     public ResponseEntity<SuccessResponse<List<PowiatResponse>>> getPowiaty(
             @RequestParam Long wojewodztwoId) {
-        Wojewodztwo woj = wojRepository.findById(wojewodztwoId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Województwo nie znalezione"));
-        List<PowiatResponse> list = powiatRepository.findByWojewodztwoOrderByName(woj)
+        if (!wojRepository.existsById(wojewodztwoId)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Województwo nie znalezione");
+        }
+        List<PowiatResponse> list = powiatRepository.findByWojewodztwoIdOrderByName(wojewodztwoId)
                 .stream().map(PowiatResponse::from).toList();
         return ResponseEntity.ok(SuccessResponse.of(list));
     }
@@ -53,20 +48,22 @@ public class GeoController {
     @GetMapping("/gminy")
     public ResponseEntity<SuccessResponse<List<GminaResponse>>> getGminy(
             @RequestParam Long powiatId) {
-        Powiat powiat = powiatRepository.findById(powiatId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Powiat nie znaleziony"));
-        List<GminaResponse> list = gminaRepository.findByPowiatOrderByNameAscTypeAsc(powiat)
-                .stream().map(GminaResponse::from).toList();
+        if (!powiatRepository.existsById(powiatId)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Powiat nie znaleziony");
+        }
+        List<GminaResponse> list = gminaRepository.findByPowiatIdOrderByNameAscTypeAsc(powiatId)
+                .stream().map(g -> GminaResponse.from(g, powiatId)).toList();
         return ResponseEntity.ok(SuccessResponse.of(list));
     }
 
     @GetMapping("/miejscowosci")
     public ResponseEntity<SuccessResponse<List<MiejscowoscResponse>>> getMiejscowosci(
             @RequestParam Long gminaId) {
-        Gmina gmina = gminaRepository.findById(gminaId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Gmina nie znaleziona"));
-        List<MiejscowoscResponse> list = miejscowoscRepository.findByGminaOrderByName(gmina)
-                .stream().map(MiejscowoscResponse::from).toList();
+        if (!gminaRepository.existsById(gminaId)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Gmina nie znaleziona");
+        }
+        List<MiejscowoscResponse> list = miejscowoscRepository.findByGminaIdOrderByName(gminaId)
+                .stream().map(m -> MiejscowoscResponse.from(m, gminaId)).toList();
         return ResponseEntity.ok(SuccessResponse.of(list));
     }
 

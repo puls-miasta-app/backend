@@ -11,5 +11,7 @@ public interface GminaRepository extends JpaRepository<Gmina, Long> {
 
     List<Gmina> findByPowiatOrderByNameAscTypeAsc(Powiat powiat);
 
+    List<Gmina> findByPowiatIdOrderByNameAscTypeAsc(Long powiatId);
+
     Optional<Gmina> findByNameAndTypeAndPowiat(String name, String type, Powiat powiat);
 }
