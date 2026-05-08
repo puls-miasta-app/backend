@@ -1,0 +1,105 @@
+package com.github.PulsMiastaApp.PulsMiasta.Controller;
+
+import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.*;
+import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.Gmina;
+import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.Miejscowosc;
+import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.Powiat;
+import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.Wojewodztwo;
+import com.github.PulsMiastaApp.PulsMiasta.Repository.*;
+import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
+
+import java.util.List;
+import java.util.Map;
+
+/**
+ * Publiczne API hierarchii administracyjnej Polski.
+ * Użycie: frontend buduje kaskadowe dropdowny woj → powiat → gmina → miejscowość.
+ */
+@RestController
+@RequestMapping("/v1/geo")
+@RequiredArgsConstructor
+@Transactional(readOnly = true)
+public class GeoController {
+
+    private final WojewodztwoRepository wojRepository;
+    private final PowiatRepository powiatRepository;
+    private final GminaRepository gminaRepository;
+    private final MiejscowoscRepository miejscowoscRepository;
+
+    @GetMapping("/wojewodztwa")
+    public ResponseEntity<SuccessResponse<List<WojewodztwoResponse>>> getWojewodztwa() {
+        List<WojewodztwoResponse> list = wojRepository.findAll()
+                .stream()
+                .sorted((a, b) -> a.getName().compareToIgnoreCase(b.getName()))
+                .map(WojewodztwoResponse::from)
+                .toList();
+        return ResponseEntity.ok(SuccessResponse.of(list));
+    }
+
+    @GetMapping("/powiaty")
+    public ResponseEntity<SuccessResponse<List<PowiatResponse>>> getPowiaty(
+            @RequestParam Long wojewodztwoId) {
+        Wojewodztwo woj = wojRepository.findById(wojewodztwoId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Województwo nie znalezione"));
+        List<PowiatResponse> list = powiatRepository.findByWojewodztwoOrderByName(woj)
+                .stream().map(PowiatResponse::from).toList();
+        return ResponseEntity.ok(SuccessResponse.of(list));
+    }
+
+    @GetMapping("/gminy")
+    public ResponseEntity<SuccessResponse<List<GminaResponse>>> getGminy(
+            @RequestParam Long powiatId) {
+        Powiat powiat = powiatRepository.findById(powiatId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Powiat nie znaleziony"));
+        List<GminaResponse> list = gminaRepository.findByPowiatOrderByNameAscTypeAsc(powiat)
+                .stream().map(GminaResponse::from).toList();
+        return ResponseEntity.ok(SuccessResponse.of(list));
+    }
+
+    @GetMapping("/miejscowosci")
+    public ResponseEntity<SuccessResponse<List<MiejscowoscResponse>>> getMiejscowosci(
+            @RequestParam Long gminaId) {
+        Gmina gmina = gminaRepository.findById(gminaId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Gmina nie znaleziona"));
+        List<MiejscowoscResponse> list = miejscowoscRepository.findByGminaOrderByName(gmina)
+                .stream().map(MiejscowoscResponse::from).toList();
+        return ResponseEntity.ok(SuccessResponse.of(list));
+    }
+
+    /** Wyszukiwanie miejscowości po nazwie (autocomplete). Zwraca max 20 wyników. */
+    @GetMapping("/miejscowosci/search")
+    public ResponseEntity<SuccessResponse<List<Map<String, Object>>>> searchMiejscowosci(
+            @RequestParam String q) {
+        if (q == null || q.isBlank() || q.length() < 2) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Podaj co najmniej 2 znaki");
+        }
+        List<Map<String, Object>> results = miejscowoscRepository
+                .searchByNameWithHierarchy(q.trim(), PageRequest.of(0, 20))
+                .stream()
+                .map(m -> {
+                    Gmina g = m.getGmina();
+                    Powiat p = g.getPowiat();
+                    Wojewodztwo w = p.getWojewodztwo();
+                    return Map.<String, Object>of(
+                            "id", m.getId(),
+                            "name", m.getName(),
+                            "gmina", g.getName(),
+                            "gminaId", g.getId(),
+                            "powiat", p.getName(),
+                            "powiatId", p.getId(),
+                            "wojewodztwo", w.getName(),
+                            "wojewodztwoId", w.getId(),
+                            "lat", m.getLat(),
+                            "lng", m.getLng()
+                    );
+                })
+                .toList();
+        return ResponseEntity.ok(SuccessResponse.of(results));
+    }
+}

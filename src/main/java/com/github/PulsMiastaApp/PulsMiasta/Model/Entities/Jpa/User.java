@@ -1,5 +1,9 @@
 package com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa;
 
+import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.Gmina;
+import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.Miejscowosc;
+import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.Powiat;
+import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.Wojewodztwo;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -86,6 +90,26 @@ public class User {
     /** Miasto zarządzane przez admina (wymagane dla ADMIN_MIASTA). */
     @Column(name = "managed_miasto", length = 100)
     private String managedMiasto;
+
+    /** FK do znormalizowanej tabeli województw (null dla USER i SUPER_ADMIN). */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "managed_wojewodztwo_id")
+    private Wojewodztwo managedWojewodztwoRef;
+
+    /** FK do znormalizowanej tabeli powiatów. */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "managed_powiat_id")
+    private Powiat managedPowiatRef;
+
+    /** FK do znormalizowanej tabeli gmin. */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "managed_gmina_id")
+    private Gmina managedGminaRef;
+
+    /** FK do znormalizowanej tabeli miejscowości (wymagane dla ADMIN_MIASTA). */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "managed_miasto_id")
+    private Miejscowosc managedMiastoRef;
 
     /** Gdy true — użytkownik musi zmienić hasło przy najbliższym logowaniu (ustawiane przez admina). */
     @Column(name = "must_change_password", nullable = false)

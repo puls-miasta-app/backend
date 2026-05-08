@@ -10,8 +10,13 @@ public record CreateAdminRequest(
         @NotBlank @Size(max = 100) String lastName,
         @NotBlank @Size(min = 8) String password,
         @NotBlank String role,
+        /** Preferuj managedWojewodztwoId — string akceptowany dla wstecznej zgodności */
         String managedWojewodztwo,
         String managedPowiat,
         String managedGmina,
-        String managedMiasto
+        String managedMiasto,
+        Long managedWojewodztwoId,
+        Long managedPowiatId,
+        Long managedGminaId,
+        Long managedMiastoId
 ) {}
