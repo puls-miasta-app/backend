@@ -11,11 +11,14 @@ import com.github.PulsMiastaApp.PulsMiasta.Model.Enums.PulseCategory;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Enums.PulsePriority;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Enums.PulseStatus;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Enums.VoteDirection;
+import com.github.PulsMiastaApp.PulsMiasta.Repository.GminaRepository;
+import com.github.PulsMiastaApp.PulsMiasta.Repository.PowiatRepository;
 import com.github.PulsMiastaApp.PulsMiasta.Repository.PulseFeedJdbcRepository;
 import com.github.PulsMiastaApp.PulsMiasta.Repository.PulsePhotoRepository;
 import com.github.PulsMiastaApp.PulsMiasta.Repository.PulseRepository;
 import com.github.PulsMiastaApp.PulsMiasta.Repository.PulseVoteRepository;
 import com.github.PulsMiastaApp.PulsMiasta.Repository.UserRepository;
+import com.github.PulsMiastaApp.PulsMiasta.Repository.WojewodztwoRepository;
 import com.github.PulsMiastaApp.PulsMiasta.Storage.PhotoStorageService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -48,6 +51,9 @@ public class PulseService {
     private final PulseAiAnalysisService pulseAiAnalysisService;
     private final ReverseGeocodingService reverseGeocodingService;
     private final PushNotificationService pushNotificationService;
+    private final WojewodztwoRepository wojRepository;
+    private final PowiatRepository powiatRepository;
+    private final GminaRepository gminaRepository;
 
     private Pulse buildPulse(User user,
                              PulseCategory category,
@@ -87,7 +93,7 @@ public class PulseService {
                                        String city) {
 
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Użytkownik nie znaleziony"));
 
         Pulse pulse = buildPulse(user, category, description, latitude, longitude,
                 address, district, street, city);
@@ -152,23 +158,57 @@ public class PulseService {
             String powiat     = blank(pulse.getPowiat())      ? addr.powiat()           : pulse.getPowiat();
             String woj        = blank(pulse.getWojewodztwo()) ? addr.wojewodztwo()      : pulse.getWojewodztwo();
 
+            GeoIds geoIds = resolveGeoIds(addr);
+            Long gminaId   = pulse.getGminaId()       != null ? pulse.getGminaId()       : geoIds.gminaId();
+            Long powiatId  = pulse.getPowiatId()       != null ? pulse.getPowiatId()      : geoIds.powiatId();
+            Long wojId     = pulse.getWojewodztwoId()  != null ? pulse.getWojewodztwoId() : geoIds.wojId();
+
             boolean changed = !java.util.Objects.equals(district, pulse.getDistrict())
                     || !java.util.Objects.equals(street,   pulse.getStreet())
                     || !java.util.Objects.equals(city,     pulse.getCity())
                     || !java.util.Objects.equals(address,  pulse.getAddress())
                     || !java.util.Objects.equals(gmina,    pulse.getGmina())
                     || !java.util.Objects.equals(powiat,   pulse.getPowiat())
-                    || !java.util.Objects.equals(woj,      pulse.getWojewodztwo());
+                    || !java.util.Objects.equals(woj,      pulse.getWojewodztwo())
+                    || !java.util.Objects.equals(gminaId,  pulse.getGminaId())
+                    || !java.util.Objects.equals(powiatId, pulse.getPowiatId())
+                    || !java.util.Objects.equals(wojId,    pulse.getWojewodztwoId());
 
             if (changed) {
                 pulseFeedJdbcRepository.updateLocation(pulseId, district, street, city, address,
-                        gmina, powiat, woj);
-                log.info("Enriched pulse {} with city='{}', gmina='{}', powiat='{}', woj='{}'",
-                        pulseId, city, gmina, powiat, woj);
+                        gmina, powiat, woj, gminaId, powiatId, wojId);
+                log.info("Enriched pulse {} with city='{}', gmina='{}' (id={}), powiat='{}' (id={}), woj='{}' (id={})",
+                        pulseId, city, gmina, gminaId, powiat, powiatId, woj, wojId);
             }
         } catch (Exception e) {
             log.warn("enrichLocationAsync failed for pulse {}: {}", pulseId, e.getMessage());
         }
+    }
+
+    private record GeoIds(Long gminaId, Long powiatId, Long wojId) {}
+
+    /**
+     * Rozwiązuje FK ID dla gminy/powiatu/województwa na podstawie znormalizowanych nazw
+     * z reverse geocodingu. Przy kolizji nazw (dwie gminy o tej samej nazwie w powiecie)
+     * zwraca null — bezpieczne false-negative zamiast false-positive.
+     */
+    private GeoIds resolveGeoIds(ReverseGeocodingService.GeocodedAddress addr) {
+        if (addr.wojewodztwo() == null) return new GeoIds(null, null, null);
+
+        var wojOpt = wojRepository.findByNameIgnoreCase(addr.wojewodztwo());
+        if (wojOpt.isEmpty()) return new GeoIds(null, null, null);
+        Long wojId = wojOpt.get().getId();
+
+        if (addr.powiat() == null) return new GeoIds(null, null, wojId);
+        var powOpt = powiatRepository.findByNameIgnoreCaseAndWojewodztwoId(addr.powiat(), wojId);
+        if (powOpt.isEmpty()) return new GeoIds(null, null, wojId);
+        Long powiatId = powOpt.get().getId();
+
+        if (addr.gmina() == null) return new GeoIds(null, powiatId, wojId);
+        var gminy = gminaRepository.findByNameIgnoreCaseAndPowiatId(addr.gmina(), powiatId);
+        // Przy wielu wynikach (różne typy gminy) nie przypisujemy ID — false-negative zamiast false-positive
+        Long gminaId = gminy.size() == 1 ? gminy.get(0).getId() : null;
+        return new GeoIds(gminaId, powiatId, wojId);
     }
 
     private static boolean blank(String s) {
@@ -179,9 +219,11 @@ public class PulseService {
 
     @Transactional(readOnly = true)
     public List<Pulse> listFeed(String city, String district, String street,
+                                String gmina, String powiat,
                                 boolean isAdmin, Long userId) {
         return pulseFeedJdbcRepository.findFeed(
                 blankToNull(city), blankToNull(district), blankToNull(street),
+                blankToNull(gmina), blankToNull(powiat),
                 isAdmin, userId);
     }
 
@@ -212,14 +254,14 @@ public class PulseService {
     @Transactional(readOnly = true)
     public Pulse getForUser(Long pulseId, Long userId) {
         Pulse pulse = pulseFeedJdbcRepository.findByIdWithPhotos(pulseId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Pulse not found"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Zgłoszenie nie znalezione"));
         pulse = resolveMerged(pulse);
 
         boolean isOwner = pulse.getUser() != null && userId.equals(pulse.getUser().getId());
         boolean hasContributed = pulse.getPhotos().stream()
                 .anyMatch(p -> p.getUser() != null && userId.equals(p.getUser().getId()));
         if (!isOwner && !hasContributed) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Not allowed to view this pulse");
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Brak dostępu do tego zgłoszenia");
         }
         return pulse;
     }
@@ -227,7 +269,7 @@ public class PulseService {
     @Transactional(readOnly = true)
     public Pulse getAny(Long pulseId) {
         Pulse pulse = pulseFeedJdbcRepository.findByIdWithPhotos(pulseId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Pulse not found"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Zgłoszenie nie znalezione"));
         return resolveMerged(pulse);
     }
 
@@ -236,7 +278,7 @@ public class PulseService {
         while (pulse.getMergedIntoPulseId() != null && hops++ < 3) {
             Long target = pulse.getMergedIntoPulseId();
             pulse = pulseFeedJdbcRepository.findByIdWithPhotos(target)
-                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Merged target not found"));
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Cel scalania nie znaleziony"));
         }
         return pulse;
     }
@@ -244,10 +286,10 @@ public class PulseService {
     @Transactional(readOnly = true)
     public List<Pulse> listDuplicates(Long pulseId) {
         Pulse primary = pulseFeedJdbcRepository.findByIdWithPhotos(pulseId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Pulse not found"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Zgłoszenie nie znalezione"));
         if (primary.getMergedIntoPulseId() != null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "Pulse " + pulseId + " is itself a duplicate — query the primary pulse instead");
+                    "Zgłoszenie " + pulseId + " jest duplikatem — odwołaj się do zgłoszenia głównego");
         }
         return pulseFeedJdbcRepository.findByMergedIntoPulseId(pulseId);
     }
@@ -255,10 +297,10 @@ public class PulseService {
     @Transactional(readOnly = true)
     public Page<Pulse> listForAdmin(PulseStatus status, PulseCategory category, PulsePriority priority,
                                     int page, int size,
-                                    String scopeColumn, String scopeValue) {
+                                    String scopeColumn, java.util.Set<String> scopeValues) {
         var pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
         return pulseFeedJdbcRepository.findForAdmin(status, category, priority,
-                scopeColumn, scopeValue, pageable);
+                scopeColumn, scopeValues, pageable);
     }
 
     // ---------- VOTES ----------
@@ -275,16 +317,16 @@ public class PulseService {
     public VotePulseResponse vote(Long userId, Long pulseId, VoteDirection direction) {
         // Ładujemy przez JDBC — omija bug Hibernate 7 + MySQL Connector/J na tabeli pulses.
         Pulse pulse = pulseFeedJdbcRepository.findByIdWithPhotos(pulseId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Pulse not found"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Zgłoszenie nie znalezione"));
 
         pulse = resolveMerged(pulse);
 
         // Blokada wierszowa (SELECT ... FOR UPDATE) przez JDBC — ta sama przyczyna.
         pulse = pulseFeedJdbcRepository.findByIdForUpdate(pulse.getId())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Pulse not found"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Zgłoszenie nie znalezione"));
 
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Użytkownik nie znaleziony"));
 
         Long primaryPulseId = pulse.getId();
         // Proxy JPA — potrzebne tylko do ustawienia FK w PulseVote, nie wyzwala SELECT.
@@ -334,10 +376,10 @@ public class PulseService {
     @Transactional
     public VotePulseResponse removeVote(Long userId, Long pulseId) {
         Pulse pulse = pulseFeedJdbcRepository.findByIdWithPhotos(pulseId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Pulse not found"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Zgłoszenie nie znalezione"));
         pulse = resolveMerged(pulse);
         pulse = pulseFeedJdbcRepository.findByIdForUpdate(pulse.getId())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Pulse not found"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Zgłoszenie nie znalezione"));
 
         Long primaryPulseId = pulse.getId();
         Optional<PulseVote> existing = pulseVoteRepository.findByPulseIdAndUserId(primaryPulseId, userId);
@@ -384,20 +426,20 @@ public class PulseService {
         if (pulseId == null) {
             boolean isUploader = photo.getUser() != null && userId.equals(photo.getUser().getId());
             if (!isUploader) {
-                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Not allowed to view this photo");
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Brak dostępu do tego zdjęcia");
             }
             return toRef(photo);
         }
 
         Pulse pulse = pulseFeedJdbcRepository.findByIdWithPhotos(pulseId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Pulse not found"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Zgłoszenie nie znalezione"));
         pulse = resolveMerged(pulse);
 
         boolean isOwner = pulse.getUser() != null && userId.equals(pulse.getUser().getId());
         boolean hasContributed = pulse.getPhotos().stream()
                 .anyMatch(p -> p.getUser() != null && userId.equals(p.getUser().getId()));
         if (!isOwner && !hasContributed) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Not allowed to view this photo");
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Brak dostępu do tego zdjęcia");
         }
         return toRef(photo);
     }
@@ -409,7 +451,7 @@ public class PulseService {
 
     private PulsePhoto loadPhoto(Long photoId) {
         return pulsePhotoRepository.findById(photoId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Photo not found"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Zdjęcie nie znalezione"));
     }
 
     private PhotoRef toRef(PulsePhoto photo) {
@@ -437,7 +479,7 @@ public class PulseService {
     public Pulse updateStatus(Long pulseId, PulseStatus newStatus) {
         // findById via JPA wali S1009 (Hibernate 7 + MySQL Connector/J) — używamy JDBC
         Pulse pulse = pulseFeedJdbcRepository.findByIdWithPhotos(pulseId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Pulse not found"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Zgłoszenie nie znalezione"));
         pulseFeedJdbcRepository.updateStatusById(pulseId, newStatus.name());
         pulse.setStatus(newStatus);
         registerAfterCommit(() -> pushNotificationService.notifyStatusChange(pulseId, newStatus));
@@ -464,7 +506,7 @@ public class PulseService {
         try {
             return photo.getBytes();
         } catch (IOException e) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Failed to read uploaded photo", e);
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Błąd odczytu przesłanego zdjęcia", e);
         }
     }
 

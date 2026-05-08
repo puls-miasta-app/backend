@@ -59,10 +59,12 @@ public class PulseController {
             @RequestParam(value = "city", required = false) String city,
             @RequestParam(value = "district", required = false) String district,
             @RequestParam(value = "street", required = false) String street,
+            @RequestParam(value = "gmina", required = false) String gmina,
+            @RequestParam(value = "powiat", required = false) String powiat,
             @AuthenticationPrincipal AuthPrincipal principal
     ) {
         requireAuthenticated(principal);
-        List<Pulse> pulses = pulseService.listFeed(city, district, street,
+        List<Pulse> pulses = pulseService.listFeed(city, district, street, gmina, powiat,
                 principal.isAdmin(), principal.id());
         var pulseIds = pulses.stream().map(Pulse::getId).toList();
         var votes = pulseService.getUserVotes(pulseIds, principal.id());
@@ -83,7 +85,7 @@ public class PulseController {
     ) {
         requireEmailVerified(principal);
         if (photos == null || photos.isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "At least one photo is required");
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Wymagane jest co najmniej jedno zdjęcie");
         }
         validateOptionalCoordinates(latitude, longitude);
 
@@ -103,22 +105,22 @@ public class PulseController {
     ) {
         requireAuthenticated(principal);
         if (body == null || body.pulseId() == null || body.pulseId().isBlank()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "pulseId is required");
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Pole pulseId jest wymagane");
         }
         long pulseId;
         try {
             pulseId = Long.parseLong(body.pulseId());
         } catch (NumberFormatException e) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "pulseId must be numeric");
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Pole pulseId musi być liczbą");
         }
         VoteDirection direction;
         try {
             direction = VoteDirection.fromApi(body.direction());
         } catch (IllegalArgumentException e) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "direction must be 'up' or 'down'");
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Pole direction musi mieć wartość 'up' lub 'down'");
         }
         if (direction == null) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "direction is required");
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Pole direction jest wymagane");
         }
         VotePulseResponse response = pulseService.vote(principal.id(), pulseId, direction);
         return ResponseEntity.ok(SuccessResponse.of(response));
@@ -182,7 +184,7 @@ public class PulseController {
     ) {
         requireEmailVerified(principal);
         if (body == null || body.reason() == null || body.reason().isBlank()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "reason is required");
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Pole reason jest wymagane");
         }
         pulseReportService.report(pulseId, principal.id(), body.reason(), body.description());
         return ResponseEntity.ok(SuccessResponse.of(null));
@@ -242,26 +244,26 @@ public class PulseController {
                 || latitude.isNaN() || longitude.isNaN()
                 || latitude.isInfinite() || longitude.isInfinite()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "latitude and longitude must both be provided");
+                    "Pola latitude i longitude muszą być podane jednocześnie");
         }
         if (latitude < -90.0 || latitude > 90.0) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "latitude must be between -90 and 90");
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Pole latitude musi być w zakresie od -90 do 90");
         }
         if (longitude < -180.0 || longitude > 180.0) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "longitude must be between -180 and 180");
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Pole longitude musi być w zakresie od -180 do 180");
         }
     }
 
     private void requireAuthenticated(AuthPrincipal principal) {
         if (principal == null) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication required");
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Wymagane uwierzytelnienie");
         }
     }
 
     private void requireEmailVerified(AuthPrincipal principal) {
         requireAuthenticated(principal);
         if (!principal.emailVerified()) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Email must be verified before creating pulses");
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Adres e-mail musi być zweryfikowany przed dodaniem zgłoszenia");
         }
     }
 }

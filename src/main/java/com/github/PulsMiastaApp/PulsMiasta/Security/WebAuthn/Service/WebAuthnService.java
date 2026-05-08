@@ -164,7 +164,7 @@ public class WebAuthnService {
         // 1. Retrieve and consume the challenge (use-once)
         byte[] challenge = challengeStore.consumeChallenge("reg:" + request.sessionKey())
                 .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatus.BAD_REQUEST, "Registration ceremony expired or already completed"));
+                        HttpStatus.BAD_REQUEST, "Ceremonia rejestracji wygasła lub została już ukończona"));
 
         // 2. Build the PublicKeyCredential<AttestationResponse> from the client's JSON fields
         PublicKeyCredential<AuthenticatorAttestationResponse> credential = buildAttestationCredential(request);
@@ -183,7 +183,7 @@ public class WebAuthnService {
             log.info("Passkey registered: credentialId={} userId={}", savedRecord.getCredentialId(), user.getId());
         } catch (Exception ex) {
             log.warn("Passkey registration failed for userId={}: {}", user.getId(), ex.getMessage());
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Passkey registration failed: " + ex.getMessage());
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Rejestracja klucza dostępu nieudana: " + ex.getMessage());
         }
     }
 
@@ -224,7 +224,7 @@ public class WebAuthnService {
         // 1. Retrieve and consume the challenge (use-once, replay-proof)
         byte[] challenge = challengeStore.consumeChallenge("auth:" + request.sessionKey())
                 .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatus.BAD_REQUEST, "Authentication ceremony expired or already completed"));
+                        HttpStatus.BAD_REQUEST, "Ceremonia uwierzytelniania wygasła lub została już ukończona"));
 
         // 2. Build assertion credential, verify cryptographically, update last-used
         PublicKeyCredential<AuthenticatorAssertionResponse> credential = buildAssertionCredential(request);
@@ -282,7 +282,7 @@ public class WebAuthnService {
         byte[] rawCredId = Base64.getUrlDecoder().decode(rawId);
         UserCredential storedCred = credentialRepository.findByCredentialId(rawCredId)
                 .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatus.UNAUTHORIZED, "Unknown passkey — credential not registered on this server"));
+                        HttpStatus.UNAUTHORIZED, "Nieznany klucz dostępu — dane uwierzytelniające nie są zarejestrowane na tym serwerze"));
 
         // Guard: credentials registered before the attestation storage fix have null bytes.
         // Reject early with a clear message instead of an opaque NPE from Webauthn4J.
@@ -290,8 +290,8 @@ public class WebAuthnService {
             log.warn("Credential {} has no stored attestationObject (registered before schema migration). " +
                     "User must delete and re-register this passkey.", credentialId);
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED,
-                    "This passkey was registered before a server update and must be re-registered. " +
-                            "Please delete this passkey and add it again.");
+                    "Ten klucz dostępu został zarejestrowany przed aktualizacją serwera i musi zostać ponownie zarejestrowany. " +
+                            "Usuń ten klucz dostępu i dodaj go ponownie.");
         }
 
         PublicKeyCredentialRequestOptions requestOptions = buildDiscoverableRequestOptions(challenge);
@@ -299,7 +299,7 @@ public class WebAuthnService {
             rpOps.authenticate(new RelyingPartyAuthenticationRequest(requestOptions, credential));
         } catch (Exception ex) {
             log.warn("Passkey assertion failed for credentialId={}: {}", credentialId, ex.getMessage());
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Passkey verification failed");
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Weryfikacja klucza dostępu nieudana");
         }
 
         storedCred.setLastUsedAt(Instant.now());
@@ -325,13 +325,13 @@ public class WebAuthnService {
             byte[] handleBytes = Base64.getUrlDecoder().decode(userHandleB64);
             User userByHandle = userRepository.findByWebauthnUserHandle(handleBytes)
                     .orElseThrow(() -> new ResponseStatusException(
-                            HttpStatus.UNAUTHORIZED, "userHandle does not match any registered user"));
+                            HttpStatus.UNAUTHORIZED, "Identyfikator użytkownika nie pasuje do żadnego zarejestrowanego konta"));
 
             // Integrity check: the credential must belong to the user identified by the handle
             if (!userByHandle.getId().equals(storedCred.getUser().getId())) {
                 log.warn("userHandle/credential owner mismatch: handleUserId={} credentialUserId={}",
                         userByHandle.getId(), storedCred.getUser().getId());
-                throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Passkey verification failed");
+                throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Weryfikacja klucza dostępu nieudana");
             }
             return userByHandle;
         }
@@ -393,7 +393,7 @@ public class WebAuthnService {
         // 1. Retrieve and consume the challenge (use-once, replay-proof)
         byte[] challenge = challengeStore.consumeChallenge("auth:" + request.sessionKey())
                 .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatus.BAD_REQUEST, "Sudo verification ceremony expired or already completed"));
+                        HttpStatus.BAD_REQUEST, "Ceremonia weryfikacji sudo wygasła lub została już ukończona"));
 
         // 2. Build assertion credential, verify cryptographically, update last-used
         PublicKeyCredential<AuthenticatorAssertionResponse> credential = buildAssertionCredential(request);
@@ -403,7 +403,7 @@ public class WebAuthnService {
         if (!storedCred.getUser().getId().equals(authenticatedUserId)) {
             log.warn("Sudo mode: credential owner userId={} does not match authenticated userId={}",
                     storedCred.getUser().getId(), authenticatedUserId);
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Passkey verification failed");
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Weryfikacja klucza dostępu nieudana");
         }
 
         log.info("Sudo mode passkey verification success: userId={} credentialId={}",
@@ -427,7 +427,7 @@ public class WebAuthnService {
     public void verifyForLogin(AuthenticationFinishRequest request, Long expectedUserId) {
         byte[] challenge = challengeStore.consumeChallenge("auth:" + request.sessionKey())
                 .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatus.BAD_REQUEST, "Login verification ceremony expired or already completed"));
+                        HttpStatus.BAD_REQUEST, "Ceremonia weryfikacji logowania wygasła lub została już ukończona"));
 
         PublicKeyCredential<AuthenticatorAssertionResponse> credential = buildAssertionCredential(request);
         UserCredential storedCred = verifyAssertionAndUpdate(challenge, request.rawId(), request.id(), credential);
@@ -435,7 +435,7 @@ public class WebAuthnService {
         if (!storedCred.getUser().getId().equals(expectedUserId)) {
             log.warn("Login 2FA: credential owner userId={} does not match expected userId={}",
                     storedCred.getUser().getId(), expectedUserId);
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Passkey verification failed");
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Weryfikacja klucza dostępu nieudana");
         }
 
         log.info("Login 2FA passkey verification success: userId={} credentialId={}",
@@ -457,7 +457,7 @@ public class WebAuthnService {
         if (!credentialRepository.findById(credentialId)
                 .map(c -> c.getUser().getId().equals(userId))
                 .orElse(false)) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Credential not found");
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Klucz dostępu nie znaleziony");
         }
         credentialRepository.deleteByIdAndUserId(credentialId, userId);
     }

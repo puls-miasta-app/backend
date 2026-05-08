@@ -20,6 +20,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDateTime;
 import java.util.Locale;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
@@ -37,25 +38,25 @@ public class PulseReportService {
     @Transactional
     public void report(Long pulseId, Long reporterId, String rawReason, String description) {
         Pulse pulse = pulseFeedJdbcRepository.findByIdWithPhotos(pulseId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Pulse not found"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Zgłoszenie nie znalezione"));
 
         User reporter = userRepository.findById(reporterId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Użytkownik nie znaleziony"));
 
         if (reportRepository.existsByPulseIdAndReporterId(pulseId, reporterId)) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "You have already reported this pulse");
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "To zgłoszenie zostało już przez Ciebie zaraportowane");
         }
 
         PulseReportReason reason;
         try {
             reason = PulseReportReason.valueOf(rawReason.trim().toUpperCase(Locale.ROOT));
         } catch (IllegalArgumentException | NullPointerException e) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid report reason: " + rawReason);
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Nieprawidłowy powód zgłoszenia: " + rawReason);
         }
 
         if (description != null && description.length() > MAX_DESCRIPTION) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "Description too long (max " + MAX_DESCRIPTION + " chars)");
+                    "Opis jest za długi (maks. " + MAX_DESCRIPTION + " znaków)");
         }
 
         PulseReport report = new PulseReport();
@@ -70,10 +71,19 @@ public class PulseReportService {
 
     @Transactional(readOnly = true)
     public Page<PulseReportResponse> listReports(
-            String rawStatus, String scopeColumn, String scopeValue, int page, int size) {
+            String rawStatus, String scopeColumn, Set<String> scopeValues, int page, int size) {
         PulseReportStatus status = parseStatus(rawStatus);
         PageRequest pageable = PageRequest.of(page, size);
-        return reportRepository.findInScope(status, scopeColumn, scopeValue, pageable)
+        // scopeColumn == null → super admin, nie generujemy IN (puste scopeValues → 1=0 → bug S1009)
+        if (scopeColumn == null) {
+            return reportRepository.findAllReports(status, pageable)
+                    .map(PulseReportService::toReportResponse);
+        }
+        // scoped admin bez przypisanych obszarów → pusty wynik bez query
+        if (scopeValues.isEmpty()) {
+            return Page.empty(pageable);
+        }
+        return reportRepository.findInScope(status, scopeColumn, scopeValues, pageable)
                 .map(PulseReportService::toReportResponse);
     }
 
@@ -86,21 +96,21 @@ public class PulseReportService {
     public PulseReportResponse reviewReport(Long reportId, Long adminId,
                                              String rawStatus, String adminNote,
                                              boolean rejectPulse,
-                                             String scopeColumn, String scopeValue) {
+                                             String scopeColumn, Set<String> scopeValues) {
         if (adminNote != null && adminNote.length() > MAX_ADMIN_NOTE) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "Admin note too long (max " + MAX_ADMIN_NOTE + " chars)");
+                    "Notatka administratora jest za długa (maks. " + MAX_ADMIN_NOTE + " znaków)");
         }
 
         PulseReport report = reportRepository.findByIdWithPulse(reportId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Report not found"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Raport nie znaleziony"));
 
-        requirePulseInScope(report.getPulse(), scopeColumn, scopeValue);
+        requirePulseInScope(report.getPulse(), scopeColumn, scopeValues);
 
         PulseReportStatus newStatus = parseStatus(rawStatus);
         if (newStatus == null || newStatus == PulseReportStatus.PENDING) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "Status must be REVIEWED or DISMISSED");
+                    "Status musi wynosić REVIEWED lub DISMISSED");
         }
 
         report.setStatus(newStatus);
@@ -118,19 +128,19 @@ public class PulseReportService {
 
     // ─── Helpers ───────────────────────────────────────────────────────────────
 
-    private static void requirePulseInScope(Pulse pulse, String scopeColumn, String scopeValue) {
-        if (scopeColumn == null) return;
+    private static void requirePulseInScope(Pulse pulse, String scopeColumn, Set<String> scopeValues) {
+        if (scopeColumn == null || scopeValues == null || scopeValues.isEmpty()) return;
         String pulseVal = switch (scopeColumn) {
-            case "city"        -> pulse.getCity();
-            case "gmina"       -> pulse.getGmina();
-            case "powiat"      -> pulse.getPowiat();
-            case "wojewodztwo" -> pulse.getWojewodztwo();
+            case "city"           -> pulse.getCity();
+            case "gmina_id"       -> pulse.getGminaId()       != null ? pulse.getGminaId().toString()       : null;
+            case "powiat_id"      -> pulse.getPowiatId()      != null ? pulse.getPowiatId().toString()      : null;
+            case "wojewodztwo_id" -> pulse.getWojewodztwoId() != null ? pulse.getWojewodztwoId().toString() : null;
             default -> throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "Unknown scope column: " + scopeColumn);
+                    "Nieznana kolumna zakresu: " + scopeColumn);
         };
-        if (scopeValue != null && !scopeValue.equalsIgnoreCase(pulseVal)) {
+        if (scopeValues.stream().noneMatch(v -> v.equalsIgnoreCase(pulseVal))) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN,
-                    "Pulse is not in your managed area");
+                    "Zgłoszenie nie jest w zarządzanym przez Ciebie obszarze");
         }
     }
 
@@ -139,7 +149,7 @@ public class PulseReportService {
         try {
             return PulseReportStatus.valueOf(raw.trim().toUpperCase(Locale.ROOT));
         } catch (IllegalArgumentException e) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid report status: " + raw);
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Nieprawidłowy status zgłoszenia: " + raw);
         }
     }
 

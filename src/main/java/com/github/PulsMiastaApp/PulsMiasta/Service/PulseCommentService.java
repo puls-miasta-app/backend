@@ -78,7 +78,7 @@ public class PulseCommentService {
     @Transactional(readOnly = true)
     public List<CommentResponse> listReplies(Long pulseId, Long commentId, Long currentUserId) {
         PulseComment parent = commentRepository.findById(commentId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Comment not found"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Komentarz nie znaleziony"));
 
         // Weryfikacja że komentarz należy do podanego pulsu
         requireCommentBelongsToPulse(parent, pulseId);
@@ -116,13 +116,13 @@ public class PulseCommentService {
 
         if (parentCommentId != null) {
             PulseComment parent = commentRepository.findById(parentCommentId)
-                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Parent comment not found"));
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Komentarz nadrzędny nie znaleziony"));
             requireCommentBelongsToPulse(parent, pulseId);
             if (parent.getParentComment() != null) {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Nested replies are not supported");
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Zagnieżdżone odpowiedzi nie są obsługiwane");
             }
             if (parent.getDeletedAt() != null) {
-                throw new ResponseStatusException(HttpStatus.GONE, "Cannot reply to a deleted comment");
+                throw new ResponseStatusException(HttpStatus.GONE, "Nie można odpowiadać na usunięty komentarz");
             }
             c.setParentComment(parent);
             commentRepository.incrementReplyCount(parentCommentId);
@@ -171,7 +171,7 @@ public class PulseCommentService {
         requireCommentBelongsToPulse(c, pulseId);
 
         if (!c.getUser().getId().equals(userId)) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Cannot edit another user's comment");
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Nie można edytować komentarza innego użytkownika");
         }
         c.setBody(trimmed);
         c.setEditedAt(LocalDateTime.now());
@@ -191,16 +191,16 @@ public class PulseCommentService {
         requireCommentBelongsToPulse(c, pulseId);
 
         if (!c.getUser().getId().equals(userId)) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Cannot delete another user's comment");
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Nie można usunąć komentarza innego użytkownika");
         }
         softDelete(c);
     }
 
     @Transactional
-    public void deleteAsAdmin(Long commentId, String scopeColumn, String scopeValue) {
+    public void deleteAsAdmin(Long commentId, String scopeColumn, Set<String> scopeValues) {
         PulseComment c = commentRepository.findById(commentId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Comment not found"));
-        requireCommentInScope(c.getPulse(), scopeColumn, scopeValue);
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Komentarz nie znaleziony"));
+        requireCommentInScope(c.getPulse(), scopeColumn, scopeValues);
         if (c.getDeletedAt() != null) return;
         softDelete(c);
     }
@@ -247,19 +247,19 @@ public class PulseCommentService {
         User reporter = requireUser(reporterId);
 
         if (reportRepository.existsByCommentIdAndReporterId(commentId, reporterId)) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "You have already reported this comment");
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Ten komentarz został już przez Ciebie zaraportowany");
         }
 
         CommentReportReason reason;
         try {
             reason = CommentReportReason.valueOf(rawReason.trim().toUpperCase(Locale.ROOT));
         } catch (IllegalArgumentException | NullPointerException e) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid report reason: " + rawReason);
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Nieprawidłowy powód zgłoszenia: " + rawReason);
         }
 
         if (description != null && description.length() > MAX_DESCRIPTION) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "Description too long (max " + MAX_DESCRIPTION + " chars)");
+                    "Opis jest za długi (maks. " + MAX_DESCRIPTION + " znaków)");
         }
 
         CommentReport report = new CommentReport();
@@ -286,10 +286,19 @@ public class PulseCommentService {
 
     @Transactional(readOnly = true)
     public Page<CommentReportResponse> listReports(
-            String rawStatus, String scopeColumn, String scopeValue, int page, int size) {
+            String rawStatus, String scopeColumn, Set<String> scopeValues, int page, int size) {
         CommentReportStatus status = parseStatus(rawStatus);
         PageRequest pageable = PageRequest.of(page, size);
-        return reportRepository.findInScope(status, scopeColumn, scopeValue, pageable)
+        // scopeColumn == null → super admin, nie generujemy IN (puste scopeValues → 1=0 → bug S1009)
+        if (scopeColumn == null) {
+            return reportRepository.findAllReports(status, pageable)
+                    .map(PulseCommentService::toReportResponse);
+        }
+        // scoped admin bez przypisanych obszarów → pusty wynik bez query
+        if (scopeValues.isEmpty()) {
+            return Page.empty(pageable);
+        }
+        return reportRepository.findInScope(status, scopeColumn, scopeValues, pageable)
                 .map(PulseCommentService::toReportResponse);
     }
 
@@ -302,23 +311,23 @@ public class PulseCommentService {
     public CommentReportResponse reviewReport(Long reportId, Long adminId,
                                                String rawStatus, String adminNote,
                                                boolean deleteComment,
-                                               String scopeColumn, String scopeValue) {
+                                               String scopeColumn, Set<String> scopeValues) {
         if (adminNote != null && adminNote.length() > MAX_ADMIN_NOTE) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "Admin note too long (max " + MAX_ADMIN_NOTE + " chars)");
+                    "Notatka administratora jest za długa (maks. " + MAX_ADMIN_NOTE + " znaków)");
         }
 
         // JOIN FETCH comment + pulse w jednym zapytaniu → brak TOCTOU
         CommentReport report = reportRepository.findByIdWithCommentAndPulse(reportId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Report not found"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Raport nie znaleziony"));
 
         // Scope check na załadowanej encji — bez dodatkowego query
-        requireCommentInScope(report.getComment().getPulse(), scopeColumn, scopeValue);
+        requireCommentInScope(report.getComment().getPulse(), scopeColumn, scopeValues);
 
         CommentReportStatus newStatus = parseStatus(rawStatus);
         if (newStatus == null || newStatus == CommentReportStatus.PENDING) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "Status must be REVIEWED or DISMISSED");
+                    "Status musi wynosić REVIEWED lub DISMISSED");
         }
 
         report.setStatus(newStatus);
@@ -352,40 +361,40 @@ public class PulseCommentService {
 
     private String validateBody(String body) {
         if (body == null || body.isBlank()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Comment body is required");
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Treść komentarza jest wymagana");
         }
         String trimmed = body.trim();
         if (trimmed.length() > MAX_BODY_LENGTH) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "Comment too long (max " + MAX_BODY_LENGTH + " chars)");
+                    "Komentarz jest za długi (maks. " + MAX_BODY_LENGTH + " znaków)");
         }
         return trimmed;
     }
 
     private PulseComment requireCommentNotDeleted(Long commentId) {
         PulseComment c = commentRepository.findById(commentId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Comment not found"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Komentarz nie znaleziony"));
         if (c.getDeletedAt() != null) {
-            throw new ResponseStatusException(HttpStatus.GONE, "Comment has been deleted");
+            throw new ResponseStatusException(HttpStatus.GONE, "Komentarz został usunięty");
         }
         return c;
     }
 
     private User requireUser(Long userId) {
         return userRepository.findById(userId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Użytkownik nie znaleziony"));
     }
 
     private void ensurePulseExists(Long pulseId) {
         if (!pulseFeedJdbcRepository.existsById(pulseId)) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Pulse not found");
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Zgłoszenie nie znalezione");
         }
     }
 
     /** Bug #2: weryfikuje że komentarz faktycznie należy do podanego pulsu. */
     private static void requireCommentBelongsToPulse(PulseComment c, Long pulseId) {
         if (!c.getPulse().getId().equals(pulseId)) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Comment not found in this pulse");
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Komentarz nie należy do tego zgłoszenia");
         }
     }
 
@@ -395,19 +404,19 @@ public class PulseCommentService {
         return likeRepository.findLikedCommentIds(userId, ids);
     }
 
-    private static void requireCommentInScope(Pulse pulse, String scopeColumn, String scopeValue) {
-        if (scopeColumn == null) return;
+    private static void requireCommentInScope(Pulse pulse, String scopeColumn, Set<String> scopeValues) {
+        if (scopeColumn == null || scopeValues == null || scopeValues.isEmpty()) return;
         String pulseVal = switch (scopeColumn) {
-            case "city"        -> pulse.getCity();
-            case "gmina"       -> pulse.getGmina();
-            case "powiat"      -> pulse.getPowiat();
-            case "wojewodztwo" -> pulse.getWojewodztwo();
+            case "city"           -> pulse.getCity();
+            case "gmina_id"       -> pulse.getGminaId()       != null ? pulse.getGminaId().toString()       : null;
+            case "powiat_id"      -> pulse.getPowiatId()      != null ? pulse.getPowiatId().toString()      : null;
+            case "wojewodztwo_id" -> pulse.getWojewodztwoId() != null ? pulse.getWojewodztwoId().toString() : null;
             default -> throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "Unknown scope column: " + scopeColumn);
+                    "Nieznana kolumna zakresu: " + scopeColumn);
         };
-        if (scopeValue != null && !scopeValue.equalsIgnoreCase(pulseVal)) {
+        if (scopeValues.stream().noneMatch(v -> v.equalsIgnoreCase(pulseVal))) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN,
-                    "Comment's pulse is not in your managed area");
+                    "Zgłoszenie komentarza nie jest w zarządzanym przez Ciebie obszarze");
         }
     }
 
@@ -416,7 +425,7 @@ public class PulseCommentService {
         try {
             return CommentReportStatus.valueOf(raw.trim().toUpperCase(Locale.ROOT));
         } catch (IllegalArgumentException e) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid report status: " + raw);
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Nieprawidłowy status zgłoszenia: " + raw);
         }
     }
 

@@ -142,7 +142,8 @@ public class PulseAiAnalysisService {
                 threat.aiNote(), threat.imageHint(), threat.heat(),
                 sourcePulse.getLatitude(), sourcePulse.getLongitude(),
                 sourcePulse.getAddress(), sourcePulse.getDistrict(), sourcePulse.getStreet(), sourcePulse.getCity(),
-                sourcePulse.getGmina(), sourcePulse.getPowiat(), sourcePulse.getWojewodztwo());
+                sourcePulse.getGmina(), sourcePulse.getPowiat(), sourcePulse.getWojewodztwo(),
+                sourcePulse.getGminaId(), sourcePulse.getPowiatId(), sourcePulse.getWojewodztwoId());
 
         attachPhotoToPulse(sourcePulse, newPulseId, userId);
 

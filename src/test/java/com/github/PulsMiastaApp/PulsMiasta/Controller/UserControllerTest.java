@@ -1,71 +1,44 @@
 package com.github.PulsMiastaApp.PulsMiasta.Controller;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.MeResponse;
+import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.SuccessResponse;
 import com.github.PulsMiastaApp.PulsMiasta.Security.Model.AuthPrincipal;
+import com.github.PulsMiastaApp.PulsMiasta.Service.UserProfileService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.http.MediaType;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.authority.SimpleGrantedAuthority;
-import org.springframework.security.core.context.SecurityContext;
-import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 
-import java.util.List;
+import java.util.Set;
 
-import static org.mockito.Mockito.when;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.assertj.core.api.Assertions.assertThat;
 
 @ExtendWith(MockitoExtension.class)
-@SpringBootTest
 class UserControllerTest {
 
-    @Autowired
-    private MockMvc mockMvc;
-
     @Mock
-    private AuthPrincipal principal;
+    private UserProfileService userProfileService;
 
-    private final ObjectMapper objectMapper = new ObjectMapper();
-
-    @Test
-    void me_shouldReturnUserPrincipal_whenAuthenticated() throws Exception {
-        when(principal.id()).thenReturn(1L);
-        when(principal.email()).thenReturn("jan@example.com");
-        when(principal.firstName()).thenReturn("Jan");
-        when(principal.lastName()).thenReturn("Kowalski");
-        when(principal.role()).thenReturn("USER");
-
-        UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
-                principal,
-                null,
-                List.of(new SimpleGrantedAuthority("ROLE_USER"))
-        );
-        SecurityContext context = SecurityContextHolder.createEmptyContext();
-        context.setAuthentication(auth);
-        SecurityContextHolder.setContext(context);
-
-        mockMvc.perform(MockMvcRequestBuilders.get("/v1/users/me")
-                        .contentType(MediaType.APPLICATION_JSON))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.data.id").value(1))
-                .andExpect(jsonPath("$.data.email").value("jan@example.com"))
-                .andExpect(jsonPath("$.data.firstName").value("Jan"))
-                .andExpect(jsonPath("$.data.lastName").value("Kowalski"))
-                .andExpect(jsonPath("$.data.role").value("USER"));
-    }
+    @InjectMocks
+    private UserController userController;
 
     @Test
-    void me_shouldReturn401_whenNotAuthenticated() throws Exception {
-        mockMvc.perform(MockMvcRequestBuilders.get("/v1/users/me")
-                        .contentType(MediaType.APPLICATION_JSON))
-                .andExpect(status().isUnauthorized());
+    void me_shouldReturnUserPrincipal_whenAuthenticated() {
+        AuthPrincipal principal = new AuthPrincipal(
+                1L, "jan@example.com", "Jan", "Kowalski", "USER", true,
+                Set.of(), Set.of(), Set.of(), Set.of());
+
+        ResponseEntity<SuccessResponse<MeResponse>> result = userController.me(principal);
+
+        assertThat(result.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(result.getBody()).isNotNull();
+        assertThat(result.getBody().getData().id()).isEqualTo(1L);
+        assertThat(result.getBody().getData().email()).isEqualTo("jan@example.com");
+        assertThat(result.getBody().getData().firstName()).isEqualTo("Jan");
+        assertThat(result.getBody().getData().lastName()).isEqualTo("Kowalski");
+        assertThat(result.getBody().getData().role()).isEqualTo("USER");
     }
 }

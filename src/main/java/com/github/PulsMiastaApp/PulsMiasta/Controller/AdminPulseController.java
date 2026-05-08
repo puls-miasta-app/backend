@@ -30,6 +30,7 @@ import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBo
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Endpointy tylko dla użytkowników z rolą ADMIN (gate w {@code SecurityConfig}:
@@ -58,7 +59,7 @@ public class AdminPulseController {
                 parseEnum(category, PulseCategory.class, "category"),
                 parseEnum(priority, PulsePriority.class, "priority"),
                 page, size,
-                principal.adminScopeColumn(), principal.adminScopeValue());
+                principal.adminScopeColumn(), principal.adminScopeValues());
 
         List<PulseResponse> items = pulses.getContent().stream()
                 .map(PulseMapper::toResponse)
@@ -108,7 +109,7 @@ public class AdminPulseController {
         PulseStatus status = parseEnum(raw, PulseStatus.class, "status");
         if (status == null) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                    .body(ErrorResponse.of("Missing or invalid status", "bad_request"));
+                    .body(ErrorResponse.of("Brak lub nieprawidłowy status", "bad_request"));
         }
         Pulse pulse = pulseService.updateStatus(id, status);
         return ResponseEntity.ok(SuccessResponse.of(PulseMapper.toResponse(pulse)));
@@ -116,23 +117,24 @@ public class AdminPulseController {
 
     private static void requireAdmin(AuthPrincipal principal) {
         if (principal == null || !principal.isAdmin()) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Admin access required");
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Wymagany dostęp administratora");
         }
     }
 
     private static void requirePulseInScope(Pulse pulse, AuthPrincipal principal) {
         String col = principal.adminScopeColumn();
         if (col == null) return;
-        String adminVal = principal.adminScopeValue();
+        Set<String> scopeValues = principal.adminScopeValues();
+        if (scopeValues.isEmpty()) return;
         String pulseVal = switch (col) {
-            case "city"        -> pulse.getCity();
-            case "gmina"       -> pulse.getGmina();
-            case "powiat"      -> pulse.getPowiat();
-            case "wojewodztwo" -> pulse.getWojewodztwo();
-            default            -> null;
+            case "city"           -> pulse.getCity();
+            case "gmina_id"       -> pulse.getGminaId()       != null ? pulse.getGminaId().toString()       : null;
+            case "powiat_id"      -> pulse.getPowiatId()      != null ? pulse.getPowiatId().toString()      : null;
+            case "wojewodztwo_id" -> pulse.getWojewodztwoId() != null ? pulse.getWojewodztwoId().toString() : null;
+            default               -> null;
         };
-        if (adminVal != null && !adminVal.equalsIgnoreCase(pulseVal)) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Pulse not in your managed area");
+        if (scopeValues.stream().noneMatch(v -> v.equalsIgnoreCase(pulseVal))) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Zgłoszenie nie jest w zarządzanym przez Ciebie obszarze");
         }
     }
 
@@ -142,7 +144,7 @@ public class AdminPulseController {
             return Enum.valueOf(type, raw.trim().toUpperCase(Locale.ROOT));
         } catch (IllegalArgumentException e) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "Invalid value for " + field + ": " + raw);
+                    "Nieprawidłowa wartość dla " + field + ": " + raw);
         }
     }
 

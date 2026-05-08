@@ -91,7 +91,7 @@ class AuthServiceTest {
 
         assertThatThrownBy(() -> authService.register(request))
                 .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("Email already in use");
+                .hasMessageContaining("Adres e-mail jest już używany");
     }
 
     @Test
@@ -177,7 +177,7 @@ class AuthServiceTest {
 
         assertThatThrownBy(() -> authService.login(request, "127.0.0.1"))
                 .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("Invalid credentials");
+                .hasMessageContaining("Nieprawidłowe dane logowania");
     }
 
     @Test
@@ -188,7 +188,7 @@ class AuthServiceTest {
 
         assertThatThrownBy(() -> authService.login(request, "127.0.0.1"))
                 .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("Invalid credentials");
+                .hasMessageContaining("Nieprawidłowe dane logowania");
     }
 
     @Test
@@ -211,7 +211,7 @@ class AuthServiceTest {
 
         assertThatThrownBy(() -> authService.findByEmail("nonexistent@example.com"))
                 .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("Invalid credentials");
+                .hasMessageContaining("Nieprawidłowe dane logowania");
     }
 
     @Test

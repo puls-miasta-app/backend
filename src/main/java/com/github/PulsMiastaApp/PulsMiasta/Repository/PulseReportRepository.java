@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
 import java.util.Optional;
 
 public interface PulseReportRepository extends JpaRepository<PulseReport, Long> {
@@ -15,8 +16,9 @@ public interface PulseReportRepository extends JpaRepository<PulseReport, Long> 
     boolean existsByPulseIdAndReporterId(Long pulseId, Long reporterId);
 
     /**
-     * Zgłoszenia w zasięgu admina — JOIN FETCH eliminuje N+1 dla wszystkich
-     * lazy relacji używanych w toReportResponse (reporter, reviewedBy, pulse).
+     * Zgłoszenia bez filtrowania zakresu — dla SUPER_ADMIN.
+     * Osobna metoda eliminuje generowanie przez Hibernate pustego IN (→ 1=0 → ?='city' and 1=0),
+     * który myli klasyfikator MySQL Connector/J i powoduje SQLState S1009.
      */
     @Query(value = """
             SELECT r FROM PulseReport r
@@ -24,11 +26,28 @@ public interface PulseReportRepository extends JpaRepository<PulseReport, Long> 
             JOIN FETCH r.reporter
             LEFT JOIN FETCH r.reviewedBy
             WHERE (:status IS NULL OR r.status = :status)
+            ORDER BY r.createdAt DESC
+            """,
+            countQuery = """
+            SELECT COUNT(r) FROM PulseReport r
+            JOIN r.pulse p
+            WHERE (:status IS NULL OR r.status = :status)
+            """)
+    Page<PulseReport> findAllReports(
+            @Param("status") PulseReportStatus status,
+            Pageable pageable);
+
+    @Query(value = """
+            SELECT r FROM PulseReport r
+            JOIN FETCH r.pulse p
+            JOIN FETCH r.reporter
+            LEFT JOIN FETCH r.reviewedBy
+            WHERE (:status IS NULL OR r.status = :status)
               AND (:scopeColumn IS NULL OR
-                  (:scopeColumn = 'city'        AND p.city        = :scopeValue) OR
-                  (:scopeColumn = 'gmina'       AND p.gmina       = :scopeValue) OR
-                  (:scopeColumn = 'powiat'      AND p.powiat      = :scopeValue) OR
-                  (:scopeColumn = 'wojewodztwo' AND p.wojewodztwo = :scopeValue))
+                  (:scopeColumn = 'city'           AND p.city                         IN :scopeValues) OR
+                  (:scopeColumn = 'gmina_id'       AND CAST(p.gminaId AS String)       IN :scopeValues) OR
+                  (:scopeColumn = 'powiat_id'      AND CAST(p.powiatId AS String)      IN :scopeValues) OR
+                  (:scopeColumn = 'wojewodztwo_id' AND CAST(p.wojewodztwoId AS String) IN :scopeValues))
             ORDER BY r.createdAt DESC
             """,
             countQuery = """
@@ -36,22 +55,17 @@ public interface PulseReportRepository extends JpaRepository<PulseReport, Long> 
             JOIN r.pulse p
             WHERE (:status IS NULL OR r.status = :status)
               AND (:scopeColumn IS NULL OR
-                  (:scopeColumn = 'city'        AND p.city        = :scopeValue) OR
-                  (:scopeColumn = 'gmina'       AND p.gmina       = :scopeValue) OR
-                  (:scopeColumn = 'powiat'      AND p.powiat      = :scopeValue) OR
-                  (:scopeColumn = 'wojewodztwo' AND p.wojewodztwo = :scopeValue))
+                  (:scopeColumn = 'city'           AND p.city                         IN :scopeValues) OR
+                  (:scopeColumn = 'gmina_id'       AND CAST(p.gminaId AS String)       IN :scopeValues) OR
+                  (:scopeColumn = 'powiat_id'      AND CAST(p.powiatId AS String)      IN :scopeValues) OR
+                  (:scopeColumn = 'wojewodztwo_id' AND CAST(p.wojewodztwoId AS String) IN :scopeValues))
             """)
     Page<PulseReport> findInScope(
             @Param("status") PulseReportStatus status,
             @Param("scopeColumn") String scopeColumn,
-            @Param("scopeValue") String scopeValue,
+            @Param("scopeValues") Collection<String> scopeValues,
             Pageable pageable);
 
-    /**
-     * Ładuje raport razem z pulsem (JOIN FETCH).
-     * Używane w reviewReport — umożliwia sprawdzenie scope na załadowanej encji
-     * bez osobnego query (eliminuje TOCTOU existsByIdInScope + findById).
-     */
     @Query("""
             SELECT r FROM PulseReport r
             JOIN FETCH r.pulse p

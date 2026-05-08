@@ -96,6 +96,18 @@ public class Pulse {
     @Column(name = "wojewodztwo", length = 120)
     private String wojewodztwo;
 
+    /** FK do geo_gminy — wypełniany przez reverse geocoding; null gdy nie udało się dopasować. */
+    @Column(name = "gmina_id")
+    private Long gminaId;
+
+    /** FK do geo_powiaty — wypełniany przez reverse geocoding; null gdy nie udało się dopasować. */
+    @Column(name = "powiat_id")
+    private Long powiatId;
+
+    /** FK do geo_wojewodztwa — wypełniany przez reverse geocoding; null gdy nie udało się dopasować. */
+    @Column(name = "wojewodztwo_id")
+    private Long wojewodztwoId;
+
     /** Tekstowy marker nasilenia (np. "Wysokie", "Średnie", "Niskie"). Wyświetlany w feedzie mobile. */
     @Column(name = "heat", length = 30)
     private String heat;
