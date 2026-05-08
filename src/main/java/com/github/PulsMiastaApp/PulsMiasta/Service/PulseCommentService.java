@@ -200,7 +200,7 @@ public class PulseCommentService {
     public void deleteAsAdmin(Long commentId, String scopeColumn, Set<String> scopeValues) {
         PulseComment c = commentRepository.findById(commentId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Komentarz nie znaleziony"));
-        requireCommentInScope(c.getPulse(), scopeColumn, scopeValue);
+        requireCommentInScope(c.getPulse(), scopeColumn, scopeValues);
         if (c.getDeletedAt() != null) return;
         softDelete(c);
     }

@@ -133,7 +133,7 @@ public class AdminPulseController {
             case "wojewodztwo" -> pulse.getWojewodztwo();
             default            -> null;
         };
-        if (adminVal != null && !adminVal.equalsIgnoreCase(pulseVal)) {
+        if (scopeValues.stream().noneMatch(v -> v.equalsIgnoreCase(pulseVal))) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Zgłoszenie nie jest w zarządzanym przez Ciebie obszarze");
         }
     }
