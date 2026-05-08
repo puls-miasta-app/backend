@@ -26,7 +26,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(EncryptionException.class)
     public ResponseEntity<ErrorResponse> handleEncryption(EncryptionException ex) {
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(ErrorResponse.of("Encryption error", "encryption_error"));
+                .body(ErrorResponse.of("Błąd szyfrowania", "encryption_error"));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
@@ -47,13 +47,13 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(MaxUploadSizeExceededException.class)
     public ResponseEntity<ErrorResponse> handleMaxUploadSize(MaxUploadSizeExceededException ex) {
         return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE)
-                .body(ErrorResponse.of("File exceeds maximum upload size", "file_too_large"));
+                .body(ErrorResponse.of("Plik przekracza maksymalny dozwolony rozmiar", "file_too_large"));
     }
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleGeneric(Exception ex) {
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(ErrorResponse.of("Internal server error", "internal_server_error"));
+                .body(ErrorResponse.of("Wewnętrzny błąd serwera", "internal_server_error"));
     }
 
     private static String mapStatusCode(int status) {

@@ -66,11 +66,11 @@ public class EmailVerificationService {
     public void verifyToken(String token) {
         Long userId = redisTemplate.opsForValue().getAndDelete(EMAIL_VERIFY_PREFIX + token);
         if (userId == null) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid or expired verification token");
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Nieprawidłowy lub wygasły token weryfikacyjny");
         }
 
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Użytkownik nie znaleziony"));
 
         user.setEmailVerified(true);
         userRepository.save(user);

@@ -108,7 +108,7 @@ public class AdminPulseController {
         PulseStatus status = parseEnum(raw, PulseStatus.class, "status");
         if (status == null) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                    .body(ErrorResponse.of("Missing or invalid status", "bad_request"));
+                    .body(ErrorResponse.of("Brak lub nieprawidłowy status", "bad_request"));
         }
         Pulse pulse = pulseService.updateStatus(id, status);
         return ResponseEntity.ok(SuccessResponse.of(PulseMapper.toResponse(pulse)));
@@ -116,7 +116,7 @@ public class AdminPulseController {
 
     private static void requireAdmin(AuthPrincipal principal) {
         if (principal == null || !principal.isAdmin()) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Admin access required");
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Wymagany dostęp administratora");
         }
     }
 
@@ -132,7 +132,7 @@ public class AdminPulseController {
             default            -> null;
         };
         if (adminVal != null && !adminVal.equalsIgnoreCase(pulseVal)) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Pulse not in your managed area");
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Zgłoszenie nie jest w zarządzanym przez Ciebie obszarze");
         }
     }
 
@@ -142,7 +142,7 @@ public class AdminPulseController {
             return Enum.valueOf(type, raw.trim().toUpperCase(Locale.ROOT));
         } catch (IllegalArgumentException e) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "Invalid value for " + field + ": " + raw);
+                    "Nieprawidłowa wartość dla " + field + ": " + raw);
         }
     }
 

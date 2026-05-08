@@ -42,7 +42,7 @@ public class UserProfileService {
     @Transactional(readOnly = true)
     public UserProfileResponse getForUser(Long userId, boolean includePii) {
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Użytkownik nie znaleziony"));
 
         var statsRow = pulseFeedJdbcRepository.aggregateStatsForUser(userId);
         long pulsesSubmitted = statsRow.pulsesSubmitted();

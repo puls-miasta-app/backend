@@ -79,7 +79,7 @@ public class RateLimitService {
             long ttlSeconds = redisTemplate.getExpire(key, TimeUnit.SECONDS);
             long remainingMinutes = Math.max(1, (long) Math.ceil(ttlSeconds / 60.0));
             throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,
-                    String.format("Rate limit exceeded. Please try again in %d minutes.", remainingMinutes));
+                    String.format("Przekroczono limit żądań. Spróbuj ponownie za %d minut.", remainingMinutes));
         }
     }
 
