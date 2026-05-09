@@ -30,7 +30,9 @@ public sealed interface LoginResult {
      *
      * @param pendingToken     a short-lived opaque token the client echoes in the 2FA request
      * @param availableMethods the 2FA methods available for this user (e.g. "TOTP", "EMAIL_OTP", "PASSKEY")
+     * @param defaultMethod    the user's preferred 2FA method, or {@code null} if none set
      */
-    record TwoFactorRequired(String pendingToken, List<String> availableMethods) implements LoginResult {
+    record TwoFactorRequired(String pendingToken, List<String> availableMethods,
+                             String defaultMethod) implements LoginResult {
     }
 }

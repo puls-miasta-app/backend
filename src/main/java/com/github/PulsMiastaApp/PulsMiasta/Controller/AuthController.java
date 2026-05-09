@@ -146,7 +146,7 @@ public class AuthController {
             }
             case LoginResult.TwoFactorRequired pending -> ResponseEntity.status(HttpStatus.ACCEPTED)
                     .body(SuccessResponse.of(new TwoFactorRequiredResponse(
-                            pending.pendingToken(), pending.availableMethods())));
+                            pending.pendingToken(), pending.availableMethods(), pending.defaultMethod())));
         };
     }
 
@@ -576,7 +576,7 @@ public class AuthController {
     ) {
     }
 
-    record TwoFactorRequiredResponse(String pendingToken, List<String> availableMethods) {
+    record TwoFactorRequiredResponse(String pendingToken, List<String> availableMethods, String defaultMethod) {
     }
 
     record PendingTokenRequest(
