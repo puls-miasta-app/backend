@@ -41,55 +41,67 @@ public interface ChatThreadRepository extends JpaRepository<ChatThread, Long> {
             SELECT t.* FROM chat_threads t
             INNER JOIN pulses p ON p.id = t.pulse_id
             WHERE p.city IN (:cities)
+              AND (:status IS NULL OR t.status = :status)
             ORDER BY t.updated_at DESC
             """,
             countQuery = """
             SELECT COUNT(*) FROM chat_threads t
             INNER JOIN pulses p ON p.id = t.pulse_id
             WHERE p.city IN (:cities)
+              AND (:status IS NULL OR t.status = :status)
             """,
             nativeQuery = true)
-    Page<ChatThread> findAllByCityIn(@Param("cities") java.util.Set<String> cities, Pageable pageable);
+    Page<ChatThread> findAllByCityIn(@Param("cities") java.util.Set<String> cities,
+                                     @Param("status") String status, Pageable pageable);
 
     @Query(value = """
             SELECT t.* FROM chat_threads t
             INNER JOIN pulses p ON p.id = t.pulse_id
             WHERE p.gmina_id IN (:gminaIds)
+              AND (:status IS NULL OR t.status = :status)
             ORDER BY t.updated_at DESC
             """,
             countQuery = """
             SELECT COUNT(*) FROM chat_threads t
             INNER JOIN pulses p ON p.id = t.pulse_id
             WHERE p.gmina_id IN (:gminaIds)
+              AND (:status IS NULL OR t.status = :status)
             """,
             nativeQuery = true)
-    Page<ChatThread> findAllByGminaIdIn(@Param("gminaIds") java.util.Set<Long> gminaIds, Pageable pageable);
+    Page<ChatThread> findAllByGminaIdIn(@Param("gminaIds") java.util.Set<Long> gminaIds,
+                                        @Param("status") String status, Pageable pageable);
 
     @Query(value = """
             SELECT t.* FROM chat_threads t
             INNER JOIN pulses p ON p.id = t.pulse_id
             WHERE p.powiat_id IN (:powiatIds)
+              AND (:status IS NULL OR t.status = :status)
             ORDER BY t.updated_at DESC
             """,
             countQuery = """
             SELECT COUNT(*) FROM chat_threads t
             INNER JOIN pulses p ON p.id = t.pulse_id
             WHERE p.powiat_id IN (:powiatIds)
+              AND (:status IS NULL OR t.status = :status)
             """,
             nativeQuery = true)
-    Page<ChatThread> findAllByPowiatIdIn(@Param("powiatIds") java.util.Set<Long> powiatIds, Pageable pageable);
+    Page<ChatThread> findAllByPowiatIdIn(@Param("powiatIds") java.util.Set<Long> powiatIds,
+                                         @Param("status") String status, Pageable pageable);
 
     @Query(value = """
             SELECT t.* FROM chat_threads t
             INNER JOIN pulses p ON p.id = t.pulse_id
             WHERE p.wojewodztwo_id IN (:wojIds)
+              AND (:status IS NULL OR t.status = :status)
             ORDER BY t.updated_at DESC
             """,
             countQuery = """
             SELECT COUNT(*) FROM chat_threads t
             INNER JOIN pulses p ON p.id = t.pulse_id
             WHERE p.wojewodztwo_id IN (:wojIds)
+              AND (:status IS NULL OR t.status = :status)
             """,
             nativeQuery = true)
-    Page<ChatThread> findAllByWojewodztwoIdIn(@Param("wojIds") java.util.Set<Long> wojIds, Pageable pageable);
+    Page<ChatThread> findAllByWojewodztwoIdIn(@Param("wojIds") java.util.Set<Long> wojIds,
+                                              @Param("status") String status, Pageable pageable);
 }

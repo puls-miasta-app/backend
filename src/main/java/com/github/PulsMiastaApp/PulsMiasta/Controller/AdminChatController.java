@@ -31,7 +31,7 @@ public class AdminChatController {
             @AuthenticationPrincipal AuthPrincipal principal
     ) {
         requireAdmin(principal);
-        Page<ChatDtos.ChatThreadResponse> result = chatService.listForAdmin(principal, status, page, size);
+        Page<ChatDtos.ChatThreadResponse> result = chatService.listForAdmin(principal, status, page, Math.min(size, 100));
         return ResponseEntity.ok(SuccessResponse.of(Map.of(
                 "threads", result.getContent(),
                 "page", result.getNumber(),
@@ -44,10 +44,12 @@ public class AdminChatController {
     @GetMapping("/v1/admin/chat/threads/{threadId}")
     public ResponseEntity<SuccessResponse<Map<String, ChatDtos.ChatThreadWithMessagesResponse>>> getThread(
             @PathVariable Long threadId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "50") int size,
             @AuthenticationPrincipal AuthPrincipal principal
     ) {
         requireAdmin(principal);
-        ChatDtos.ChatThreadWithMessagesResponse result = chatService.getThread(threadId, principal);
+        ChatDtos.ChatThreadWithMessagesResponse result = chatService.getThread(threadId, principal, page, Math.min(size, 100));
         return ResponseEntity.ok(SuccessResponse.of(Map.of("thread", result)));
     }
 
@@ -60,7 +62,7 @@ public class AdminChatController {
             @AuthenticationPrincipal AuthPrincipal principal
     ) {
         requireAdmin(principal);
-        Page<ChatDtos.ChatMessageResponse> result = chatService.getMessages(threadId, principal, page, size);
+        Page<ChatDtos.ChatMessageResponse> result = chatService.getMessages(threadId, principal, page, Math.min(size, 100));
         return ResponseEntity.ok(SuccessResponse.of(Map.of(
                 "messages", result.getContent(),
                 "page", result.getNumber(),

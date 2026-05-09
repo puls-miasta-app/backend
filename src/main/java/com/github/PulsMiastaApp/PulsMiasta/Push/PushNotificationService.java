@@ -152,7 +152,7 @@ public class PushNotificationService {
     // ─── Chat powiadomienia ────────────────────────────────────────────────────
 
     /** Powiadamia obywatela że admin odpowiedział na wątek. */
-    @Async("photoUploadExecutor")
+    @Async("chatNotificationExecutor")
     @Transactional(readOnly = true)
     public void notifyChatAdminReply(Long threadId, Long messageId, Long citizenId) {
         if (!canReceive(citizenId, PrefType.CHAT_MESSAGES)) return;
@@ -170,7 +170,7 @@ public class PushNotificationService {
     }
 
     /** Powiadamia urzędnika (jeśli przypisany) że obywatel wysłał nową wiadomość. */
-    @Async("photoUploadExecutor")
+    @Async("chatNotificationExecutor")
     @Transactional(readOnly = true)
     public void notifyChatUserMessage(Long threadId, Long messageId, Long senderId, Long assignedToId) {
         if (assignedToId == null) return;
@@ -189,7 +189,7 @@ public class PushNotificationService {
     }
 
     /** Powiadamia właściciela pulsa o nowym wątku czatu otwartym przez inną osobę. */
-    @Async("photoUploadExecutor")
+    @Async("chatNotificationExecutor")
     @Transactional(readOnly = true)
     public void notifyChatNewThread(Long threadId, Long recipientId) {
         if (!canReceive(recipientId, PrefType.CHAT_MESSAGES)) return;
@@ -207,7 +207,7 @@ public class PushNotificationService {
     }
 
     /** Powiadamia obywatela o zmianie statusu wątku. */
-    @Async("photoUploadExecutor")
+    @Async("chatNotificationExecutor")
     @Transactional(readOnly = true)
     public void notifyChatStatusChange(Long threadId, ChatThreadStatus newStatus, Long citizenId) {
         if (!canReceive(citizenId, PrefType.CHAT_MESSAGES)) return;

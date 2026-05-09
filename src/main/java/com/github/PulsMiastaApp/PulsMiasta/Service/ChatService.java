@@ -27,13 +27,20 @@ import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.server.ResponseStatusException;
 
+import org.springframework.dao.DataIntegrityViolationException;
+
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.Base64;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -55,7 +62,7 @@ public class ChatService {
 
     @Transactional
     public ChatDtos.ChatThreadResponse openThread(Long pulseId, Long userId, String subject, String firstMessage) {
-        validateBody(firstMessage, MAX_BODY_LENGTH);
+        String trimmedMessage = validateBody(firstMessage, MAX_BODY_LENGTH);
         if (subject == null || subject.isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Temat wątku jest wymagany");
         }
@@ -74,19 +81,22 @@ public class ChatService {
         }
         User user = requireUser(userId);
 
+        LocalDateTime now = LocalDateTime.now();
         ChatThread thread = new ChatThread();
         // getReference nie wykonuje SELECT — tylko proxy z ID (bezpieczne dla FK)
         thread.setPulse(entityManager.getReference(com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.Pulse.class, pulseId));
         thread.setUser(user);
         thread.setSubject(subject.trim());
-        threadRepository.save(thread);
-
-        ChatMessage msg = buildMessage(thread, user, firstMessage);
-        messageRepository.save(msg);
-
         thread.setMessagesCount(1);
-        thread.setLastMessageAt(msg.getCreatedAt());
-        threadRepository.save(thread);
+        thread.setLastMessageAt(now);
+
+        try {
+            threadRepository.save(thread);
+            ChatMessage msg = buildMessage(thread, user, trimmedMessage);
+            messageRepository.save(msg);
+        } catch (DataIntegrityViolationException e) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Wątek dla tego zgłoszenia już istnieje");
+        }
 
         Long threadId = thread.getId();
         Long pulseOwnerId = pulseInfo.ownerId();
@@ -100,12 +110,10 @@ public class ChatService {
     // ─── Wiadomości — odczyt ──────────────────────────────────────────────────
 
     @Transactional(readOnly = true)
-    public ChatDtos.ChatThreadWithMessagesResponse getThread(Long threadId, AuthPrincipal principal) {
+    public ChatDtos.ChatThreadWithMessagesResponse getThread(Long threadId, AuthPrincipal principal, int page, int size) {
         ChatThread thread = requireThread(threadId);
         requireAccess(thread, principal);
 
-        int page = 0;
-        int size = 50;
         Page<ChatMessage> msgPage = messageRepository.findAllByThreadIdOrderByCreatedAtAsc(
                 threadId, PageRequest.of(page, size));
 
@@ -134,8 +142,10 @@ public class ChatService {
 
     @Transactional(readOnly = true)
     public Page<ChatDtos.ChatThreadResponse> listMyThreads(Long userId, int page, int size) {
-        return threadRepository.findAllByUserIdOrderByUpdatedAtDesc(userId, PageRequest.of(page, size))
-                .map(this::toThreadResponse);
+        Page<ChatThread> threads = threadRepository.findAllByUserIdOrderByUpdatedAtDesc(userId, PageRequest.of(page, size));
+        Map<Long, PulseInfo> pulseInfoMap = batchQueryPulseInfo(threads.getContent().stream()
+                .map(ChatThread::getPulseId).collect(Collectors.toList()));
+        return threads.map(t -> toThreadResponse(t, pulseInfoMap.get(t.getPulseId())));
     }
 
     // ─── Lista wątków — admin ─────────────────────────────────────────────────
@@ -143,47 +153,52 @@ public class ChatService {
     @Transactional(readOnly = true)
     public Page<ChatDtos.ChatThreadResponse> listForAdmin(AuthPrincipal principal, String rawStatus, int page, int size) {
         ChatThreadStatus status = rawStatus != null ? parseStatus(rawStatus) : null;
+        String statusName = status != null ? status.name() : null;
         PageRequest pageable = PageRequest.of(page, size);
 
+        Page<ChatThread> threads;
         if (principal.userRole() == UserRole.SUPER_ADMIN) {
             if (status != null) {
-                return threadRepository.findAllByStatusOrderByUpdatedAtDesc(status, pageable)
-                        .map(this::toThreadResponse);
+                threads = threadRepository.findAllByStatusOrderByUpdatedAtDesc(status, pageable);
+            } else {
+                threads = threadRepository.findAll(PageRequest.of(page, size, Sort.by("updatedAt").descending()));
             }
-            return threadRepository.findAll(PageRequest.of(page, size, Sort.by("updatedAt").descending()))
-                    .map(this::toThreadResponse);
+        } else {
+            threads = switch (principal.userRole()) {
+                case ADMIN_MIASTA -> {
+                    Set<String> cities = principal.managedMiasta();
+                    if (cities.isEmpty()) yield Page.empty(pageable);
+                    yield threadRepository.findAllByCityIn(cities, statusName, pageable);
+                }
+                case ADMIN_GMINY -> {
+                    Set<Long> ids = principal.managedGminyIds();
+                    if (ids.isEmpty()) yield Page.empty(pageable);
+                    yield threadRepository.findAllByGminaIdIn(ids, statusName, pageable);
+                }
+                case ADMIN_POWIATU -> {
+                    Set<Long> ids = principal.managedPowiatyIds();
+                    if (ids.isEmpty()) yield Page.empty(pageable);
+                    yield threadRepository.findAllByPowiatIdIn(ids, statusName, pageable);
+                }
+                case ADMIN_WOJEWODZTWA -> {
+                    Set<Long> ids = principal.managedWojewodztwaIds();
+                    if (ids.isEmpty()) yield Page.empty(pageable);
+                    yield threadRepository.findAllByWojewodztwoIdIn(ids, statusName, pageable);
+                }
+                default -> Page.empty(pageable);
+            };
         }
 
-        return switch (principal.userRole()) {
-            case ADMIN_MIASTA -> {
-                Set<String> cities = principal.managedMiasta();
-                if (cities.isEmpty()) yield Page.empty(pageable);
-                yield threadRepository.findAllByCityIn(cities, pageable).map(this::toThreadResponse);
-            }
-            case ADMIN_GMINY -> {
-                Set<Long> ids = principal.managedGminyIds();
-                if (ids.isEmpty()) yield Page.empty(pageable);
-                yield threadRepository.findAllByGminaIdIn(ids, pageable).map(this::toThreadResponse);
-            }
-            case ADMIN_POWIATU -> {
-                Set<Long> ids = principal.managedPowiatyIds();
-                if (ids.isEmpty()) yield Page.empty(pageable);
-                yield threadRepository.findAllByPowiatIdIn(ids, pageable).map(this::toThreadResponse);
-            }
-            case ADMIN_WOJEWODZTWA -> {
-                Set<Long> ids = principal.managedWojewodztwaIds();
-                if (ids.isEmpty()) yield Page.empty(pageable);
-                yield threadRepository.findAllByWojewodztwoIdIn(ids, pageable).map(this::toThreadResponse);
-            }
-            default -> Page.empty(pageable);
-        };
+        Map<Long, PulseInfo> pulseInfoMap = batchQueryPulseInfo(threads.getContent().stream()
+                .map(ChatThread::getPulseId).collect(Collectors.toList()));
+        return threads.map(t -> toThreadResponse(t, pulseInfoMap.get(t.getPulseId())));
     }
 
     // ─── Wysyłanie wiadomości ─────────────────────────────────────────────────
 
     @Transactional
     public ChatDtos.ChatMessageResponse sendMessage(Long threadId, AuthPrincipal principal, String body) {
-        validateBody(body, MAX_BODY_LENGTH);
+        String trimmedBody = validateBody(body, MAX_BODY_LENGTH);
         ChatThread thread = requireThread(threadId);
         requireAccess(thread, principal);
 
@@ -192,7 +207,7 @@ public class ChatService {
         }
 
         User sender = requireUser(principal.id());
-        ChatMessage msg = buildMessage(thread, sender, body);
+        ChatMessage msg = buildMessage(thread, sender, trimmedBody);
         messageRepository.save(msg);
 
         thread.setMessagesCount(thread.getMessagesCount() + 1);
@@ -296,7 +311,9 @@ public class ChatService {
 
         String col = principal.adminScopeColumn();
         Set<String> vals = principal.adminScopeValues();
-        if (col == null || vals == null || vals.isEmpty()) return;
+        if (col == null || vals == null || vals.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Brak przypisanego obszaru administracyjnego");
+        }
 
         // JDBC zamiast thread.getPulse() — unikamy lazy-load i bugu Hibernate/MySQL
         Long pulseId = thread.getPulseId();
@@ -320,7 +337,7 @@ public class ChatService {
         msg.setThread(thread);
         msg.setSender(sender);
         msg.setSenderRole(sender.getRole());
-        msg.setBody(encryptBody(body.trim()));
+        msg.setBody(encryptBody(body));
         return msg;
     }
 
@@ -362,6 +379,27 @@ public class ChatService {
                 ),
                 pulseId);
         return rows.isEmpty() ? null : rows.get(0);
+    }
+
+    private Map<Long, PulseInfo> batchQueryPulseInfo(Collection<Long> pulseIds) {
+        List<Long> ids = pulseIds.stream().filter(id -> id != null).distinct().collect(Collectors.toList());
+        if (ids.isEmpty()) return Collections.emptyMap();
+        String placeholders = ids.stream().map(id -> "?").collect(Collectors.joining(","));
+        List<PulseInfo> rows = jdbcTemplate.query(
+                "SELECT id, title, user_id, city, gmina_id, powiat_id, wojewodztwo_id FROM pulses WHERE id IN (" + placeholders + ")",
+                (rs, rowNum) -> new PulseInfo(
+                        rs.getLong("id"),
+                        rs.getString("title"),
+                        rs.getLong("user_id"),
+                        rs.getString("city"),
+                        rs.getObject("gmina_id", Long.class),
+                        rs.getObject("powiat_id", Long.class),
+                        rs.getObject("wojewodztwo_id", Long.class)
+                ),
+                ids.toArray());
+        Map<Long, PulseInfo> map = new HashMap<>();
+        for (PulseInfo info : rows) map.put(info.id(), info);
+        return map;
     }
 
     // ─── Szyfrowanie treści wiadomości (AES-GCM, envelope encryption) ────────────

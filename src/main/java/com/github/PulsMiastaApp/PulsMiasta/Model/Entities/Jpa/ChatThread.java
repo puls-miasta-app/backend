@@ -9,12 +9,16 @@ import lombok.Setter;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "chat_threads", indexes = {
-        @Index(name = "idx_chat_thread_pulse",  columnList = "pulse_id"),
-        @Index(name = "idx_chat_thread_user",   columnList = "user_id"),
-        @Index(name = "idx_chat_thread_status", columnList = "status"),
-        @Index(name = "idx_chat_thread_assigned", columnList = "assigned_to_id")
-})
+@Table(name = "chat_threads",
+        uniqueConstraints = {
+                @UniqueConstraint(name = "uq_chat_thread_pulse_user", columnNames = {"pulse_id", "user_id"})
+        },
+        indexes = {
+                @Index(name = "idx_chat_thread_pulse",    columnList = "pulse_id"),
+                @Index(name = "idx_chat_thread_user",     columnList = "user_id"),
+                @Index(name = "idx_chat_thread_status",   columnList = "status"),
+                @Index(name = "idx_chat_thread_assigned", columnList = "assigned_to_id")
+        })
 @Getter
 @Setter
 @NoArgsConstructor

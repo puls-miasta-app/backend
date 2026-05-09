@@ -119,7 +119,10 @@ public class WebSocketChannelInterceptor implements ChannelInterceptor {
 
                 String col = principal.adminScopeColumn();
                 var vals = principal.adminScopeValues();
-                if (col == null || vals == null || vals.isEmpty()) return;
+                if (col == null || vals == null || vals.isEmpty()) {
+                    throw new org.springframework.security.access.AccessDeniedException(
+                            "Brak przypisanego obszaru administracyjnego");
+                }
 
                 // JDBC zamiast thread.getPulse() — unikamy lazy-load i bugu Hibernate 7 + MySQL
                 Long pulseId = thread.getPulseId();
