@@ -53,7 +53,19 @@ public class GeminiImageAnalysisService {
 
             Na podstawie zdjęcia zwróć JSON o polach:
             - category: najlepiej pasująca kategoria główna (RUCH, BEZPIECZENSTWO, ZIELEN)
-            - priority: PILNE lub STANDARD; PILNE = natychmiastowe zagrożenie dla zdrowia/bezpieczeństwa
+            - priority: PILNE, STANDARD lub NISKIE.
+              PILNE (tylko kilka przypadków na tysiąc — bezpośrednie zagrożenie życia/zdrowia):
+                głęboka dziura w jezdni (>15 cm), wyrwany właz kanalizacyjny, zwalone drzewo
+                blokujące drogę, odsłonięte przewody elektryczne pod napięciem, wyciek gazu,
+                grożąca zawaleniem konstrukcja.
+              STANDARD (typowe usterki infrastrukturalne): nierówny chodnik, małe ubytki asfaltu,
+                pęknięcia nawierzchni, wyboje, kałuże, graffiti, uszkodzone znaki, połamane
+                gałęzie, śmieci, niedziałające latarnie, zaniedbana zieleń.
+              NISKIE (usterki kosmetyczne bez wpływu na użytkowanie): plamy i zabrudzenia na
+                chodniku lub jezdni, nieznaczne przebarwienia nawierzchni, lekkie zadrapania
+                na ławce lub ogrodzeniu, drobne ślady farby, estetyczne zniszczenia bez
+                jakiegokolwiek zagrożenia lub utrudnienia. Domyślnie użyj STANDARD — NISKIE
+                tylko gdy problem jest wyłącznie wizualny i nie stanowi żadnego utrudnienia.
             - title: bardzo krótki tytuł (max 8 słów) po polsku, np. "Dziura w jezdni przy skrzyżowaniu"
             - description: krótki opis problemu po polsku (max 2 zdania, bez emoji)
             - aiNote: jednozdaniowa notatka serwisu AI skierowana do odbiorcy (np. "Utrudnienie dla kierowców")

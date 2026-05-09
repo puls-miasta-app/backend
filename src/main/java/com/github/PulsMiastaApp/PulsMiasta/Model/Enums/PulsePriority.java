@@ -1,12 +1,13 @@
 package com.github.PulsMiastaApp.PulsMiasta.Model.Enums;
 
 /**
- * Priorytet zgłoszenia. Aplikacja mobilna oczekuje jedynie dwóch poziomów:
- * "Pilne" i "Standard" (patrz {@code PulseResponse.priority} w mobile).
+ * Priorytet zgłoszenia. Trzy poziomy: PILNE (zagrożenie bezpieczeństwa), STANDARD
+ * (typowa usterka) oraz NISKIE (usterka kosmetyczna, np. plamy, drobne zadrapania).
  */
 public enum PulsePriority {
     PILNE("Pilne"),
-    STANDARD("Standard");
+    STANDARD("Standard"),
+    NISKIE("Niskie");
 
     private final String label;
 
