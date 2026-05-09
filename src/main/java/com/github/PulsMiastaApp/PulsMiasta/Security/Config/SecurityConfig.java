@@ -72,6 +72,8 @@ public class SecurityConfig {
                         .requestMatchers("/v1/map/**").permitAll()
                         .requestMatchers("/v1/geo/**").permitAll()
                         .requestMatchers("/v1/test/**").permitAll()
+                        // WebSocket handshake — auth odbywa się przez HandshakeInterceptor (ciasteczko)
+                        .requestMatchers("/ws/**").permitAll()
                         // Urzędnik/admin endpoints — dostęp dla wszystkich ról adminów
                         .requestMatchers("/v1/admin/**").hasAnyRole(
                                 "SUPER_ADMIN", "ADMIN_WOJEWODZTWA", "ADMIN_POWIATU",
