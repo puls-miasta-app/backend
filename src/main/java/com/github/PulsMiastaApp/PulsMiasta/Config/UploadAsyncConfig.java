@@ -28,7 +28,20 @@ public class UploadAsyncConfig {
         executor.setMaxPoolSize(maxPoolSize);
         executor.setQueueCapacity(queueCapacity);
         executor.setThreadNamePrefix("photo-upload-");
-        // Caller runs rejected tasks instead of dropping them silently
+        executor.setRejectedExecutionHandler(new java.util.concurrent.ThreadPoolExecutor.CallerRunsPolicy());
+        executor.initialize();
+        return executor;
+    }
+
+    // Dedykowany executor dla powiadomień push czatu — odizolowany od puli photo-upload,
+    // żeby wysoki ruch w czacie nie blokował uploadów zdjęć (i odwrotnie).
+    @Bean("chatNotificationExecutor")
+    public Executor chatNotificationExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(2);
+        executor.setMaxPoolSize(4);
+        executor.setQueueCapacity(200);
+        executor.setThreadNamePrefix("chat-notify-");
         executor.setRejectedExecutionHandler(new java.util.concurrent.ThreadPoolExecutor.CallerRunsPolicy());
         executor.initialize();
         return executor;
