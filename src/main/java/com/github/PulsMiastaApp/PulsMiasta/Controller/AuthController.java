@@ -634,27 +634,6 @@ public class AuthController {
         }
     }
 
-    @Schema(name = "LoginSuccessResponse")
-    private static class LoginSuccessResponse extends SuccessResponse<String> {
-        @lombok.Getter
-        private final boolean mustChangePassword;
-        /** True when the user is an admin with no 2FA method configured. Frontend should redirect to 2FA setup. */
-        @lombok.Getter
-        private final boolean mustSetup2FA;
-
-        public LoginSuccessResponse() {
-            super(true, "Logged in successfully");
-            this.mustChangePassword = false;
-            this.mustSetup2FA = false;
-        }
-
-        public LoginSuccessResponse(boolean mustChangePassword, boolean mustSetup2FA) {
-            super(true, "Logged in successfully");
-            this.mustChangePassword = mustChangePassword;
-            this.mustSetup2FA = mustSetup2FA;
-        }
-    }
-
     @Schema(name = "LogoutSuccessResponse")
     private static class LogoutSuccessResponse extends SuccessResponse<String> {
         public LogoutSuccessResponse() {
