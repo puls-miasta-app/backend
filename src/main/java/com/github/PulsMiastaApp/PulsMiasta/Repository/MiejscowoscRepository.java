@@ -2,6 +2,7 @@ package com.github.PulsMiastaApp.PulsMiasta.Repository;
 
 import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.Gmina;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.Miejscowosc;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -16,6 +17,8 @@ public interface MiejscowoscRepository extends JpaRepository<Miejscowosc, Long> 
 
     List<Miejscowosc> findByGminaIdOrderByName(Long gminaId);
 
+    Page<Miejscowosc> findByGminaIdOrderByName(Long gminaId, Pageable pageable);
+
     /**
      * Wyszukiwanie z priorytetowaniem popularnych miejscowości:
      * 1. Dokładne dopasowanie nazwy przed częściowym
@@ -24,7 +27,7 @@ public interface MiejscowoscRepository extends JpaRepository<Miejscowosc, Long> 
      *
      * Przyjmuje pattern (np. "%warszawa%") i exact (np. "warszawa") — oba lowercase.
      */
-    @Query("""
+    @Query(value = """
             SELECT m FROM Miejscowosc m
             JOIN FETCH m.gmina g
             JOIN FETCH g.powiat p
@@ -34,8 +37,12 @@ public interface MiejscowoscRepository extends JpaRepository<Miejscowosc, Long> 
                 CASE WHEN LOWER(m.name) = :exact THEN 0 ELSE 1 END,
                 CASE g.type WHEN 'miejska' THEN 0 WHEN 'miejsko-wiejska' THEN 1 ELSE 2 END,
                 m.name
+            """,
+            countQuery = """
+            SELECT COUNT(m) FROM Miejscowosc m
+            WHERE LOWER(m.name) LIKE :pattern ESCAPE '\\'
             """)
-    List<Miejscowosc> searchByNameWithHierarchy(
+    Page<Miejscowosc> searchByNameWithHierarchy(
             @Param("pattern") String pattern,
             @Param("exact") String exact,
             Pageable pageable);
