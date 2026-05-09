@@ -2,6 +2,8 @@ package com.github.PulsMiastaApp.PulsMiasta.Repository;
 
 import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.Powiat;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.Wojewodztwo;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
@@ -12,6 +14,8 @@ public interface PowiatRepository extends JpaRepository<Powiat, Long> {
     List<Powiat> findByWojewodztwoOrderByName(Wojewodztwo wojewodztwo);
 
     List<Powiat> findByWojewodztwoIdOrderByName(Long wojewodztwoId);
+
+    Page<Powiat> findByWojewodztwoIdOrderByName(Long wojewodztwoId, Pageable pageable);
 
     Optional<Powiat> findByNameAndWojewodztwo(String name, Wojewodztwo wojewodztwo);
 

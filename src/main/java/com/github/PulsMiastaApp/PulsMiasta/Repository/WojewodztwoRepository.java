@@ -1,6 +1,8 @@
 package com.github.PulsMiastaApp.PulsMiasta.Repository;
 
 import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.Wojewodztwo;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
@@ -13,4 +15,6 @@ public interface WojewodztwoRepository extends JpaRepository<Wojewodztwo, Long> 
     Optional<Wojewodztwo> findByNameIgnoreCase(String name);
 
     List<Wojewodztwo> findAllByOrderByNameAsc();
+
+    Page<Wojewodztwo> findAllByOrderByNameAsc(Pageable pageable);
 }

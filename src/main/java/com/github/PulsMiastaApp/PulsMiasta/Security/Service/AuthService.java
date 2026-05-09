@@ -90,7 +90,7 @@ public class AuthService {
         if (!availableMethods.isEmpty()) {
             // Co najmniej jedna metoda 2FA jest włączona — wymagamy drugiego kroku.
             String pendingToken = twoFactorPendingService.createPendingToken(user.getId(), availableMethods);
-            return new LoginResult.TwoFactorRequired(pendingToken, availableMethods);
+            return new LoginResult.TwoFactorRequired(pendingToken, availableMethods, user.getTwoFactorDefaultMethod());
         }
 
         // Brak 2FA. Admini dostają sesję, ale z flagą mustSetup2FA=true, żeby
