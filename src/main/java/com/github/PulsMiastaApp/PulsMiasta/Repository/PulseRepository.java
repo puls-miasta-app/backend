@@ -104,6 +104,9 @@ public interface PulseRepository extends JpaRepository<Pulse, Long> {
             @Param("priority") PulsePriority priority,
             Pageable pageable);
 
+    @Query("select p.user.id from Pulse p where p.id = :id")
+    Optional<Long> findOwnerIdById(@Param("id") Long id);
+
     // --- Districts / Streets helpers ------------------------------------------------
 
     // Note: endpointy /v1/districts i /v1/streets nie używają repozytorium — są

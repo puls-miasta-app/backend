@@ -26,6 +26,11 @@ public class AuthTokenFilter extends OncePerRequestFilter {
     public static final String SESSION_COOKIE_NAME = "auth_token";
     public static final String REMEMBER_ME_COOKIE_NAME = "remember_me";
 
+    // Mobile clients cannot read HttpOnly cookies — expose tokens in response headers instead.
+    // The mobile app reads these headers, stores them in SecureStore, and sends them in Cookie header.
+    public static final String SESSION_TOKEN_HEADER = "X-Session-Token";
+    public static final String REMEMBER_ME_TOKEN_HEADER = "X-Remember-Me-Token";
+
     // Konfigurowalne cookie flags — defaulty dev-friendly (http localhost).
     // Prod: ustaw auth.cookie.secure=true i auth.cookie.same-site=Strict (lub None gdy cross-site).
     private static volatile boolean cookieSecure = false;
@@ -50,6 +55,13 @@ public class AuthTokenFilter extends OncePerRequestFilter {
     }
 
     @Override
+    protected boolean shouldNotFilter(HttpServletRequest request) {
+        // WebSocket upgrade — auth odbywa się przez HandshakeInterceptor, nie przez ten filtr
+        String upgrade = request.getHeader("Upgrade");
+        return "websocket".equalsIgnoreCase(upgrade);
+    }
+
+    @Override
     protected void doFilterInternal(HttpServletRequest request,
                                     HttpServletResponse response,
                                     FilterChain filterChain) throws ServletException, IOException {
@@ -67,6 +79,8 @@ public class AuthTokenFilter extends OncePerRequestFilter {
                 if (newSessionToken.isPresent()) {
                     userId = tokenService.getUserIdAndSlide(newSessionToken.get());
                     addCookie(response, SESSION_COOKIE_NAME, newSessionToken.get(), (int) sessionTtlSeconds);
+                    // Mobile apps can't read Set-Cookie — expose new token in header so app can update SecureStore
+                    response.setHeader(SESSION_TOKEN_HEADER, newSessionToken.get());
                 }
             }
         }
@@ -122,6 +136,18 @@ public class AuthTokenFilter extends OncePerRequestFilter {
                 .filter(c -> name.equals(c.getName()))
                 .map(Cookie::getValue)
                 .findFirst();
+    }
+
+    /**
+     * Exposes session and remember-me tokens in response headers for mobile clients.
+     * Mobile apps read these, store them in SecureStore, and send them in the Cookie header.
+     */
+    public static void applyMobileTokenHeaders(HttpServletResponse response, AuthResult result,
+                                               boolean rememberMe) {
+        response.setHeader(SESSION_TOKEN_HEADER, result.sessionToken());
+        if (rememberMe && result.rememberMeToken() != null) {
+            response.setHeader(REMEMBER_ME_TOKEN_HEADER, result.rememberMeToken());
+        }
     }
 
     /**

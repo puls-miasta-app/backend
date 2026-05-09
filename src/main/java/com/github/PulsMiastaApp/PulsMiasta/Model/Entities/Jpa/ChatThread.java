@@ -28,6 +28,10 @@ public class ChatThread {
     @JoinColumn(name = "pulse_id", nullable = false)
     private Pulse pulse;
 
+    /** Bezpośredni dostęp do FK bez lazy-load encji Pulse. */
+    @Column(name = "pulse_id", insertable = false, updatable = false)
+    private Long pulseId;
+
     /** Obywatel, który zainicjował wątek. */
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "user_id", nullable = false)

@@ -111,7 +111,8 @@ public class SecurityConfig {
         config.setAllowedHeaders(List.of("*"));
 
         // Expose headers the frontend may need to read
-        config.setExposedHeaders(List.of("Content-Type", "X-Request-Id"));
+        config.setExposedHeaders(List.of("Content-Type", "X-Request-Id",
+                AuthTokenFilter.SESSION_TOKEN_HEADER, AuthTokenFilter.REMEMBER_ME_TOKEN_HEADER));
 
         // Must be true — cookies (auth_token, remember_me) are sent with cross-origin requests
         config.setAllowCredentials(true);
@@ -120,6 +121,16 @@ public class SecurityConfig {
         config.setMaxAge(3600L);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+
+        // WebSocket handshake — auth obsługuje HandshakeInterceptor (ciasteczko), nie CORS.
+        // Używamy allowedOriginPatterns("*") zamiast allowedOrigins żeby nie blokować
+        // żadnej domeny (w tym http://localhost:8088 gdzie jest chat-test.html).
+        CorsConfiguration wsConfig = new CorsConfiguration();
+        wsConfig.addAllowedOriginPattern("*");
+        wsConfig.addAllowedMethod("GET");
+        wsConfig.addAllowedHeader("*");
+        source.registerCorsConfiguration("/ws/**", wsConfig);
+
         source.registerCorsConfiguration("/**", config);
         return source;
     }

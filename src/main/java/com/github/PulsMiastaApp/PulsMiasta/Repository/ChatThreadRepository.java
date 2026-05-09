@@ -23,44 +23,73 @@ public interface ChatThreadRepository extends JpaRepository<ChatThread, Long> {
     /** Admin — wszystkie wątki w danym statusie. */
     Page<ChatThread> findAllByStatusOrderByUpdatedAtDesc(ChatThreadStatus status, Pageable pageable);
 
-    /** Admin — wątki dla pulsu z danego obszaru (city). */
+    // Uwaga: celowo NIE robimy JOIN FETCH t.pulse — każdy JOIN z tabelą pulses
+    // powoduje SQLState S1009 przez bug Hibernate 7 + MySQL Connector/J.
+    // Dane pulse są pobierane przez JdbcTemplate w ChatService.queryPulseInfo().
     @Query("""
             SELECT t FROM ChatThread t
-            JOIN t.pulse p
-            WHERE p.city IN :cities
-            ORDER BY t.updatedAt DESC
-            """)
-    Page<ChatThread> findAllByCityIn(@Param("cities") java.util.Set<String> cities, Pageable pageable);
-
-    @Query("""
-            SELECT t FROM ChatThread t
-            JOIN t.pulse p
-            WHERE p.gminaId IN :gminaIds
-            ORDER BY t.updatedAt DESC
-            """)
-    Page<ChatThread> findAllByGminaIdIn(@Param("gminaIds") java.util.Set<Long> gminaIds, Pageable pageable);
-
-    @Query("""
-            SELECT t FROM ChatThread t
-            JOIN t.pulse p
-            WHERE p.powiatId IN :powiatIds
-            ORDER BY t.updatedAt DESC
-            """)
-    Page<ChatThread> findAllByPowiatIdIn(@Param("powiatIds") java.util.Set<Long> powiatIds, Pageable pageable);
-
-    @Query("""
-            SELECT t FROM ChatThread t
-            JOIN t.pulse p
-            WHERE p.wojewodztwoId IN :wojIds
-            ORDER BY t.updatedAt DESC
-            """)
-    Page<ChatThread> findAllByWojewodztwoIdIn(@Param("wojIds") java.util.Set<Long> wojIds, Pageable pageable);
-
-    @Query("""
-            SELECT t FROM ChatThread t
-            JOIN FETCH t.pulse
-            JOIN FETCH t.user
+            LEFT JOIN FETCH t.user
+            LEFT JOIN FETCH t.assignedTo
             WHERE t.id = :id
             """)
     Optional<ChatThread> findByIdWithDetails(@Param("id") Long id);
+
+    // Metody admin filtrujące po danych pulse używają natywnego SQL zamiast JPQL,
+    // żeby ominąć ten sam bug (JPQL JOIN t.pulse generuje ten sam błędny query).
+
+    @Query(value = """
+            SELECT t.* FROM chat_threads t
+            INNER JOIN pulses p ON p.id = t.pulse_id
+            WHERE p.city IN (:cities)
+            ORDER BY t.updated_at DESC
+            """,
+            countQuery = """
+            SELECT COUNT(*) FROM chat_threads t
+            INNER JOIN pulses p ON p.id = t.pulse_id
+            WHERE p.city IN (:cities)
+            """,
+            nativeQuery = true)
+    Page<ChatThread> findAllByCityIn(@Param("cities") java.util.Set<String> cities, Pageable pageable);
+
+    @Query(value = """
+            SELECT t.* FROM chat_threads t
+            INNER JOIN pulses p ON p.id = t.pulse_id
+            WHERE p.gmina_id IN (:gminaIds)
+            ORDER BY t.updated_at DESC
+            """,
+            countQuery = """
+            SELECT COUNT(*) FROM chat_threads t
+            INNER JOIN pulses p ON p.id = t.pulse_id
+            WHERE p.gmina_id IN (:gminaIds)
+            """,
+            nativeQuery = true)
+    Page<ChatThread> findAllByGminaIdIn(@Param("gminaIds") java.util.Set<Long> gminaIds, Pageable pageable);
+
+    @Query(value = """
+            SELECT t.* FROM chat_threads t
+            INNER JOIN pulses p ON p.id = t.pulse_id
+            WHERE p.powiat_id IN (:powiatIds)
+            ORDER BY t.updated_at DESC
+            """,
+            countQuery = """
+            SELECT COUNT(*) FROM chat_threads t
+            INNER JOIN pulses p ON p.id = t.pulse_id
+            WHERE p.powiat_id IN (:powiatIds)
+            """,
+            nativeQuery = true)
+    Page<ChatThread> findAllByPowiatIdIn(@Param("powiatIds") java.util.Set<Long> powiatIds, Pageable pageable);
+
+    @Query(value = """
+            SELECT t.* FROM chat_threads t
+            INNER JOIN pulses p ON p.id = t.pulse_id
+            WHERE p.wojewodztwo_id IN (:wojIds)
+            ORDER BY t.updated_at DESC
+            """,
+            countQuery = """
+            SELECT COUNT(*) FROM chat_threads t
+            INNER JOIN pulses p ON p.id = t.pulse_id
+            WHERE p.wojewodztwo_id IN (:wojIds)
+            """,
+            nativeQuery = true)
+    Page<ChatThread> findAllByWojewodztwoIdIn(@Param("wojIds") java.util.Set<Long> wojIds, Pageable pageable);
 }

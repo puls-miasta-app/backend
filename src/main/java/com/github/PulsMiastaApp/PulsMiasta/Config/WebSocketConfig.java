@@ -17,7 +17,7 @@ import org.springframework.web.socket.WebSocketHandler;
 import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBroker;
 import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
 import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer;
-import org.springframework.web.socket.server.support.HttpSessionHandshakeInterceptor;
+import org.springframework.web.socket.server.HandshakeInterceptor;
 
 import java.util.Map;
 import java.util.Optional;
@@ -56,14 +56,13 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
      * Interceptor HTTP handshake — wyciąga token z ciasteczka i zapisuje AuthPrincipal
      * w atrybutach sesji WebSocket. Potem ChannelInterceptor odczyta go ze STOMP CONNECT.
      */
-    private HttpSessionHandshakeInterceptor authHandshakeInterceptor() {
-        return new HttpSessionHandshakeInterceptor() {
+    private HandshakeInterceptor authHandshakeInterceptor() {
+        return new HandshakeInterceptor() {
             @Override
             public boolean beforeHandshake(ServerHttpRequest request,
                                            ServerHttpResponse response,
                                            WebSocketHandler wsHandler,
-                                           Map<String, Object> attributes) throws Exception {
-
+                                           Map<String, Object> attributes) {
                 if (request instanceof ServletServerHttpRequest servletRequest) {
                     Cookie[] cookies = servletRequest.getServletRequest().getCookies();
                     if (cookies != null) {
@@ -72,13 +71,23 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
                                 Optional<Long> userId = tokenService.getUserIdAndSlide(cookie.getValue());
                                 userId.flatMap(id -> userRepository.findByIdWithGeo(id))
                                         .map(AuthPrincipal::from)
-                                        .ifPresent(principal -> attributes.put("principal", principal));
+                                        .ifPresent(principal -> {
+                                            attributes.put("principal", principal);
+                                            log.debug("WS handshake auth OK — userId={}", principal.id());
+                                        });
                                 break;
                             }
                         }
                     }
                 }
+                // Zwróć true zawsze — auth weryfikujemy w ChannelInterceptor (STOMP CONNECT)
                 return true;
+            }
+
+            @Override
+            public void afterHandshake(ServerHttpRequest request, ServerHttpResponse response,
+                                       WebSocketHandler wsHandler, Exception ex) {
+                if (ex != null) log.warn("WS handshake error: {}", ex.getMessage());
             }
         };
     }

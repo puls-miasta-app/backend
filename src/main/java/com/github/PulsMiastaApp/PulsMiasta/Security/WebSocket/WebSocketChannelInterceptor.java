@@ -4,6 +4,7 @@ import com.github.PulsMiastaApp.PulsMiasta.Repository.ChatThreadRepository;
 import com.github.PulsMiastaApp.PulsMiasta.Security.Model.AuthPrincipal;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.simp.stomp.StompCommand;
@@ -30,6 +31,7 @@ import java.util.Map;
 public class WebSocketChannelInterceptor implements ChannelInterceptor {
 
     private final ChatThreadRepository chatThreadRepository;
+    private final JdbcTemplate jdbcTemplate;
 
     @Override
     public Message<?> preSend(Message<?> message, MessageChannel channel) {
@@ -79,6 +81,22 @@ public class WebSocketChannelInterceptor implements ChannelInterceptor {
         return extractPrincipal(accessor);
     }
 
+    private String queryPulseField(Long pulseId, String col) {
+        String sqlCol = switch (col) {
+            case "city"           -> "city";
+            case "gmina_id"       -> "gmina_id";
+            case "powiat_id"      -> "powiat_id";
+            case "wojewodztwo_id" -> "wojewodztwo_id";
+            default               -> null;
+        };
+        if (sqlCol == null) return null;
+        var rows = jdbcTemplate.query(
+                "SELECT " + sqlCol + " FROM pulses WHERE id = ?",
+                (rs, n) -> rs.getString(1),
+                pulseId);
+        return rows.isEmpty() ? null : rows.get(0);
+    }
+
     private static long parseThreadId(String destination) {
         try {
             String suffix = destination.substring("/topic/thread.".length());
@@ -99,19 +117,13 @@ public class WebSocketChannelInterceptor implements ChannelInterceptor {
                 // SUPER_ADMIN bez ograniczeń
                 if ("SUPER_ADMIN".equals(principal.role())) return;
 
-                // Sprawdź scope admina na podstawie pulsa
-                var pulse = thread.getPulse();
                 String col = principal.adminScopeColumn();
                 var vals = principal.adminScopeValues();
                 if (col == null || vals == null || vals.isEmpty()) return;
 
-                String pulseVal = switch (col) {
-                    case "city"           -> pulse.getCity();
-                    case "gmina_id"       -> pulse.getGminaId() != null ? pulse.getGminaId().toString() : null;
-                    case "powiat_id"      -> pulse.getPowiatId() != null ? pulse.getPowiatId().toString() : null;
-                    case "wojewodztwo_id" -> pulse.getWojewodztwoId() != null ? pulse.getWojewodztwoId().toString() : null;
-                    default               -> null;
-                };
+                // JDBC zamiast thread.getPulse() — unikamy lazy-load i bugu Hibernate 7 + MySQL
+                Long pulseId = thread.getPulseId();
+                String pulseVal = pulseId != null ? queryPulseField(pulseId, col) : null;
                 if (pulseVal == null || vals.stream().noneMatch(v -> v.equalsIgnoreCase(pulseVal))) {
                     throw new org.springframework.security.access.AccessDeniedException(
                             "Wątek nie jest w Twoim obszarze administracyjnym");

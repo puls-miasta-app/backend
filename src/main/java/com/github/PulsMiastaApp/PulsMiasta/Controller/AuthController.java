@@ -78,9 +78,12 @@ public class AuthController {
             HttpServletResponse response) {
 
         AuthResult result = authService.register(request);
+        boolean isMobile = request.clientType() == ClientType.MOBILE;
         AuthTokenFilter.applyAuthCookies(response, result, request.rememberMe(),
-                request.clientType() == ClientType.MOBILE,
-                sessionTtlMinutes, rememberMeWebDays, rememberMeMobileDays);
+                isMobile, sessionTtlMinutes, rememberMeWebDays, rememberMeMobileDays);
+        if (isMobile) {
+            AuthTokenFilter.applyMobileTokenHeaders(response, result, request.rememberMe());
+        }
 
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(SuccessResponse.of("Registered successfully"));
@@ -135,10 +138,14 @@ public class AuthController {
 
         return switch (result) {
             case LoginResult.SessionGranted granted -> {
-                AuthTokenFilter.applyAuthCookies(response,
-                        new AuthResult(granted.sessionToken(), granted.rememberMeToken()),
-                        request.rememberMe(), request.clientType() == ClientType.MOBILE,
+                boolean isMobile = request.clientType() == ClientType.MOBILE;
+                AuthResult authResult = new AuthResult(granted.sessionToken(), granted.rememberMeToken());
+                AuthTokenFilter.applyAuthCookies(response, authResult,
+                        request.rememberMe(), isMobile,
                         sessionTtlMinutes, rememberMeWebDays, rememberMeMobileDays);
+                if (isMobile) {
+                    AuthTokenFilter.applyMobileTokenHeaders(response, authResult, request.rememberMe());
+                }
                 // Auto-activate sudo mode immediately after login (no 2FA path)
                 sudoModeService.activateSudoMode(granted.sessionToken());
                 yield ResponseEntity.ok(SuccessResponse.of(
@@ -174,9 +181,12 @@ public class AuthController {
         twoFactorPendingService.consumePendingToken(request.pendingToken());
 
         AuthResult result = authService.completeLoginWithSession(userId, request.rememberMe(), request.clientType());
+        boolean isMobile = request.clientType() == ClientType.MOBILE;
         AuthTokenFilter.applyAuthCookies(response, result, request.rememberMe(),
-                request.clientType() == ClientType.MOBILE,
-                sessionTtlMinutes, rememberMeWebDays, rememberMeMobileDays);
+                isMobile, sessionTtlMinutes, rememberMeWebDays, rememberMeMobileDays);
+        if (isMobile) {
+            AuthTokenFilter.applyMobileTokenHeaders(response, result, request.rememberMe());
+        }
         sudoModeService.activateSudoMode(result.sessionToken());
 
         return ResponseEntity.ok(SuccessResponse.of("Logged in successfully"));
@@ -218,9 +228,12 @@ public class AuthController {
         twoFactorPendingService.consumePendingToken(request.pendingToken());
 
         AuthResult result = authService.completeLoginWithSession(userId, request.rememberMe(), request.clientType());
+        boolean isMobile = request.clientType() == ClientType.MOBILE;
         AuthTokenFilter.applyAuthCookies(response, result, request.rememberMe(),
-                request.clientType() == ClientType.MOBILE,
-                sessionTtlMinutes, rememberMeWebDays, rememberMeMobileDays);
+                isMobile, sessionTtlMinutes, rememberMeWebDays, rememberMeMobileDays);
+        if (isMobile) {
+            AuthTokenFilter.applyMobileTokenHeaders(response, result, request.rememberMe());
+        }
         sudoModeService.activateSudoMode(result.sessionToken());
 
         return ResponseEntity.ok(SuccessResponse.of("Logged in successfully"));
@@ -267,9 +280,12 @@ public class AuthController {
         twoFactorPendingService.consumePendingToken(request.pendingToken());
 
         AuthResult result = authService.completeLoginWithSession(userId, request.rememberMe(), request.clientType());
+        boolean isMobile = request.clientType() == ClientType.MOBILE;
         AuthTokenFilter.applyAuthCookies(response, result, request.rememberMe(),
-                request.clientType() == ClientType.MOBILE,
-                sessionTtlMinutes, rememberMeWebDays, rememberMeMobileDays);
+                isMobile, sessionTtlMinutes, rememberMeWebDays, rememberMeMobileDays);
+        if (isMobile) {
+            AuthTokenFilter.applyMobileTokenHeaders(response, result, request.rememberMe());
+        }
         sudoModeService.activateSudoMode(result.sessionToken());
 
         return ResponseEntity.ok(SuccessResponse.of("Logged in successfully"));
