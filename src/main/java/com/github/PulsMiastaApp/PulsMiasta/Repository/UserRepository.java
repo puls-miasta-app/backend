@@ -1,6 +1,8 @@
 package com.github.PulsMiastaApp.PulsMiasta.Repository;
 
 import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.User;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -53,4 +55,19 @@ public interface UserRepository extends JpaRepository<User, Long> {
     /** Admini których zasięg gmin PRZECINA się z podanym zbiorem (filtr po ID). */
     @Query("SELECT DISTINCT u FROM User u JOIN u.managedGminy g WHERE u.role IN :roles AND g.id IN :gmIds ORDER BY u.id")
     List<User> findAdminsByGminyIds(@Param("roles") List<String> roles, @Param("gmIds") Collection<Long> gmIds);
+
+    /**
+     * Paginowana lista wszystkich użytkowników z opcjonalnym filtrem po emailu i statusie blokady.
+     * Używana przez panel admina.
+     */
+    @Query("""
+            SELECT u FROM User u
+            WHERE (:emailFilter IS NULL OR LOWER(u.email) LIKE LOWER(CONCAT('%', :emailFilter, '%')))
+              AND (:blocked IS NULL OR u.blocked = :blocked)
+            ORDER BY u.id DESC
+            """)
+    Page<User> findAllWithFilters(
+            @Param("emailFilter") String emailFilter,
+            @Param("blocked") Boolean blocked,
+            Pageable pageable);
 }

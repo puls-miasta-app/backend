@@ -1,14 +1,17 @@
 package com.github.PulsMiastaApp.PulsMiasta.Controller;
 
 import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.AdminUserResponse;
+import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.BlockUserRequest;
 import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.CreateAdminRequest;
 import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.SuccessResponse;
 import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.UpdateAdminRequest;
+import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.UserAdminView;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.User;
 import com.github.PulsMiastaApp.PulsMiasta.Security.Model.AuthPrincipal;
 import com.github.PulsMiastaApp.PulsMiasta.Service.AdminUserService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -20,6 +23,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -89,6 +93,70 @@ public class AdminUserController {
         return ResponseEntity.ok(SuccessResponse.of(null));
     }
 
+    // ─── User management (block / unblock / list / get) ──────────────────────
+
+    /**
+     * Lista wszystkich użytkowników (adminów i zwykłych) z paginacją.
+     * Parametry: {@code email} (opcjonalny filtr), {@code blocked} (true/false/brak = wszyscy).
+     */
+    @GetMapping("/all")
+    public ResponseEntity<SuccessResponse<UserListResponse>> listAllUsers(
+            @RequestParam(required = false) String email,
+            @RequestParam(required = false) Boolean blocked,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @AuthenticationPrincipal AuthPrincipal principal
+    ) {
+        requireAdmin(principal);
+        int safeSize = Math.min(Math.max(1, size), 100);
+        Page<UserAdminView> result = adminUserService.listUsers(email, blocked, Math.max(0, page), safeSize);
+        return ResponseEntity.ok(SuccessResponse.of(new UserListResponse(
+                result.getContent(),
+                result.getNumber(),
+                result.getSize(),
+                result.getTotalElements(),
+                result.getTotalPages()
+        )));
+    }
+
+    /** Szczegóły dowolnego użytkownika (admin lub zwykły). */
+    @GetMapping("/{id}")
+    public ResponseEntity<SuccessResponse<UserAdminView>> getUserDetails(
+            @PathVariable("id") Long targetId,
+            @AuthenticationPrincipal AuthPrincipal principal
+    ) {
+        requireAdmin(principal);
+        return ResponseEntity.ok(SuccessResponse.of(adminUserService.getUserDetails(targetId)));
+    }
+
+    /**
+     * Blokuje konto użytkownika.
+     * SUPER_ADMIN może blokować dowolne konto (oprócz innych SUPER_ADMINów).
+     * Pozostałe role adminów mogą blokować tylko zwykłych użytkowników (USER).
+     */
+    @PostMapping(value = "/{id}/block", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<SuccessResponse<UserAdminView>> blockUser(
+            @PathVariable("id") Long targetId,
+            @RequestBody(required = false) BlockUserRequest body,
+            @AuthenticationPrincipal AuthPrincipal principal
+    ) {
+        requireAdmin(principal);
+        String reason = body != null ? body.reason() : null;
+        UserAdminView result = adminUserService.blockUser(principal.id(), targetId, reason);
+        return ResponseEntity.ok(SuccessResponse.of(result));
+    }
+
+    /** Odblokowuje konto użytkownika. */
+    @DeleteMapping("/{id}/block")
+    public ResponseEntity<SuccessResponse<UserAdminView>> unblockUser(
+            @PathVariable("id") Long targetId,
+            @AuthenticationPrincipal AuthPrincipal principal
+    ) {
+        requireAdmin(principal);
+        UserAdminView result = adminUserService.unblockUser(principal.id(), targetId);
+        return ResponseEntity.ok(SuccessResponse.of(result));
+    }
+
     private static void requireAdmin(AuthPrincipal principal) {
         if (principal == null) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication required");
@@ -97,4 +165,12 @@ public class AdminUserController {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Admin access required");
         }
     }
+
+    public record UserListResponse(
+            List<UserAdminView> items,
+            int page,
+            int size,
+            long totalElements,
+            int totalPages
+    ) {}
 }

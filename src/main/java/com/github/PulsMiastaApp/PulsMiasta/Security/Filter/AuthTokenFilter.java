@@ -88,7 +88,9 @@ public class AuthTokenFilter extends OncePerRequestFilter {
         // 3. Resolve userId → User → AuthPrincipal → SecurityContext
         // Always use findByIdWithGeo — single query covers both regular users and admins.
         // For regular users the geo JOIN FETCH returns empty collections (no overhead).
+        // Blocked users are silently treated as unauthenticated.
         userId.flatMap(id -> userRepository.findByIdWithGeo(id))
+                .filter(user -> !user.isBlocked())
                 .map(AuthPrincipal::from)
                 .ifPresent(principal -> {
                     UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
