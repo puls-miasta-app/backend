@@ -392,13 +392,15 @@ public class AuthController {
                     "performing any sensitive account operation.")
     @Tag(name = "Sudo Mode")
     public ResponseEntity<SuccessResponse<SudoStatusResponse>> sudoStatus(
+            @AuthenticationPrincipal AuthPrincipal principal,
             HttpServletRequest request) {
 
         String sessionToken = AuthTokenFilter.extractCookie(request, AuthTokenFilter.SESSION_COOKIE_NAME)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication required"));
 
         SudoModeService.SudoStatus status = sudoModeService.getStatus(sessionToken);
-        return ResponseEntity.ok(SuccessResponse.of(new SudoStatusResponse(status.isActive(), status.remainingSeconds())));
+        String defaultMethod = principal != null ? authService.findById(principal.id()).getTwoFactorDefaultMethod() : null;
+        return ResponseEntity.ok(SuccessResponse.of(new SudoStatusResponse(status.isActive(), status.remainingSeconds(), defaultMethod)));
     }
 
     /**
@@ -573,7 +575,9 @@ public class AuthController {
             @Schema(description = "Whether sudo mode is currently active for this session")
             boolean isActive,
             @Schema(description = "Seconds remaining until sudo expires (0 when inactive)")
-            long remainingSeconds
+            long remainingSeconds,
+            @Schema(description = "User's preferred 2FA method, or null if none set")
+            String defaultMethod
     ) {
     }
 

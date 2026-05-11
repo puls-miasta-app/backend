@@ -30,18 +30,18 @@ public class ExpoPushService {
     private final DeviceRegistrationRepository deviceRepo;
     private final RestClient restClient = RestClient.create();
 
-    public void send(List<String> tokens, String title, String body, Map<String, Object> data) {
+    public void send(List<String> tokens, String title, String body, String channelId, Map<String, Object> data) {
         if (tokens == null || tokens.isEmpty()) return;
 
         for (int i = 0; i < tokens.size(); i += BATCH_SIZE) {
             List<String> batch = tokens.subList(i, Math.min(i + BATCH_SIZE, tokens.size()));
-            sendBatch(batch, title, body, data);
+            sendBatch(batch, title, body, channelId, data);
         }
     }
 
-    private void sendBatch(List<String> tokens, String title, String body, Map<String, Object> data) {
+    private void sendBatch(List<String> tokens, String title, String body, String channelId, Map<String, Object> data) {
         List<PushMessage> messages = tokens.stream()
-                .map(token -> new PushMessage(token, title, body, "default", data))
+                .map(token -> new PushMessage(token, title, body, "default", channelId, data))
                 .toList();
         try {
             ExpoPushResponse response = restClient.post()
@@ -77,7 +77,7 @@ public class ExpoPushService {
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    record PushMessage(String to, String title, String body, String sound, Map<String, Object> data) {}
+    record PushMessage(String to, String title, String body, String sound, String channelId, Map<String, Object> data) {}
 
     record ExpoPushResponse(List<TicketResult> data) {}
 
