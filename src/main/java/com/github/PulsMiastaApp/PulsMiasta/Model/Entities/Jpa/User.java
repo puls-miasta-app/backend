@@ -5,6 +5,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+import java.time.LocalDateTime;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.UUID;
@@ -100,6 +101,19 @@ public class User {
 
     @Column(name = "two_factor_default_method", nullable = true, length = 20)
     private String twoFactorDefaultMethod;
+
+    @Column(name = "blocked", nullable = false)
+    private boolean blocked = false;
+
+    @Column(name = "blocked_at", nullable = true)
+    private LocalDateTime blockedAt;
+
+    @Column(name = "block_reason", columnDefinition = "TEXT", nullable = true)
+    private String blockReason;
+
+    /** ID admina który zablokował konto — denormalizacja (brak FK by uniknąć cyklu). */
+    @Column(name = "blocked_by_admin_id", nullable = true)
+    private Long blockedByAdminId;
 
     public void ensureWebauthnUserHandle() {
         if (this.webauthnUserHandle == null) {

@@ -54,9 +54,9 @@ public class PushNotificationService {
 
         String title = "Aktualizacja zgłoszenia";
         String body = "Twoje zgłoszenie \"" + truncate(pulse.getTitle(), 50) + "\" — " + newStatus.label();
-        expoPushService.send(tokens, title, body, Map.of(
+        expoPushService.send(tokens, title, body, "pulse-status", Map.of(
                 "pulseId", pulseId,
-                "type", "STATUS_CHANGE",
+                "type", "pulse.status_changed",
                 "status", newStatus.name()
         ));
     }
@@ -75,7 +75,8 @@ public class PushNotificationService {
         expoPushService.send(tokens,
                 "Zgłoszenie podpięte",
                 "Twoje zgłoszenie dotyczy tego samego problemu co \"" + primaryTitle + "\". Możesz śledzić je tam.",
-                Map.of("pulseId", primaryPulseId, "type", "MERGED")
+                "pulse-status",
+                Map.of("pulseId", primaryPulseId, "type", "pulse.merged")
         );
     }
 
@@ -99,7 +100,8 @@ public class PushNotificationService {
         expoPushService.send(tokens,
                 commenterName + " skomentował Twoje zgłoszenie",
                 truncate(comment != null ? comment.getBody() : "", 100),
-                Map.of("pulseId", pulseId, "commentId", commentId, "type", "NEW_COMMENT")
+                "pulse-comments",
+                Map.of("pulseId", pulseId, "commentId", commentId, "type", "pulse.comment_added")
         );
     }
 
@@ -127,9 +129,10 @@ public class PushNotificationService {
         expoPushService.send(tokens,
                 replierName + " odpowiedział na Twój komentarz",
                 truncate(reply.getBody(), 100),
+                "pulse-comments",
                 pulseId != null
-                        ? Map.of("pulseId", pulseId, "commentId", replyId, "type", "COMMENT_REPLY")
-                        : Map.of("commentId", replyId, "type", "COMMENT_REPLY")
+                        ? Map.of("pulseId", pulseId, "commentId", replyId, "type", "pulse.comment_reply_added")
+                        : Map.of("commentId", replyId, "type", "pulse.comment_reply_added")
         );
     }
 
@@ -165,7 +168,8 @@ public class PushNotificationService {
             expoPushService.send(tokens,
                     senderName + " odpowiedział na Twój wątek",
                     truncate(msg.getBody(), 100),
-                    Map.of("threadId", threadId, "type", "CHAT_ADMIN_REPLY")
+                    "pulse-chat",
+                    Map.of("threadId", threadId, "type", "chat.admin_reply")
             );
         });
     }
@@ -184,7 +188,8 @@ public class PushNotificationService {
             expoPushService.send(tokens,
                     senderName + " wysłał wiadomość w wątku",
                     truncate(msg.getBody(), 100),
-                    Map.of("threadId", threadId, "type", "CHAT_USER_MESSAGE")
+                    "pulse-chat",
+                    Map.of("threadId", threadId, "type", "chat.user_message")
             );
         });
     }
@@ -202,7 +207,8 @@ public class PushNotificationService {
             expoPushService.send(tokens,
                     "Nowy wątek czatu",
                     subject,
-                    Map.of("threadId", threadId, "type", "CHAT_NEW_THREAD")
+                    "pulse-chat",
+                    Map.of("threadId", threadId, "type", "chat.new_thread")
             );
         });
     }
@@ -220,7 +226,8 @@ public class PushNotificationService {
             expoPushService.send(tokens,
                     "Zmiana statusu wątku",
                     subject + " — " + newStatus.label(),
-                    Map.of("threadId", threadId, "type", "CHAT_STATUS_CHANGE", "status", newStatus.name())
+                    "pulse-chat",
+                    Map.of("threadId", threadId, "type", "chat.status_changed", "status", newStatus.name())
             );
         });
     }

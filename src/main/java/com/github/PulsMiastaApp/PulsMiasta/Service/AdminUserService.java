@@ -3,10 +3,13 @@ package com.github.PulsMiastaApp.PulsMiasta.Service;
 import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.AdminUserResponse;
 import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.CreateAdminRequest;
 import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.UpdateAdminRequest;
+import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.UserAdminView;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.*;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Enums.UserRole;
 import com.github.PulsMiastaApp.PulsMiasta.Repository.*;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -14,6 +17,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -301,6 +305,86 @@ public class AdminUserService {
                         "ID " + id + " w polu " + field + " wykracza poza Twój zasięg");
             }
         }
+    }
+
+    // ---------- user management (block / unblock / list / get) ----------
+
+    /**
+     * Blokuje konto użytkownika.
+     * SUPER_ADMIN może zablokować każdego (oprócz siebie i innych SUPER_ADMINów).
+     * Pozostałe role adminów mogą blokować tylko zwykłych użytkowników (USER).
+     */
+    @Transactional
+    public UserAdminView blockUser(Long adminId, Long targetId, String reason) {
+        if (adminId.equals(targetId)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Nie możesz zablokować własnego konta");
+        }
+        User admin = userRepository.findById(adminId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Admin nie znaleziony"));
+        User target = userRepository.findById(targetId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Użytkownik nie znaleziony"));
+
+        UserRole adminRole = parseRole(admin.getRole());
+        UserRole targetRole = parseRole(target.getRole());
+
+        if (targetRole == UserRole.SUPER_ADMIN) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Nie można zablokować konta SUPER_ADMIN");
+        }
+        if (adminRole != UserRole.SUPER_ADMIN && targetRole != UserRole.USER) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Tylko SUPER_ADMIN może blokować konta adminów");
+        }
+
+        target.setBlocked(true);
+        target.setBlockedAt(LocalDateTime.now());
+        target.setBlockReason(reason != null ? reason.trim() : null);
+        target.setBlockedByAdminId(adminId);
+        return UserAdminView.from(userRepository.save(target));
+    }
+
+    /**
+     * Odblokowuje konto użytkownika.
+     * Takie same reguły hierarchii jak w blockUser.
+     */
+    @Transactional
+    public UserAdminView unblockUser(Long adminId, Long targetId) {
+        User admin = userRepository.findById(adminId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Admin nie znaleziony"));
+        User target = userRepository.findById(targetId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Użytkownik nie znaleziony"));
+
+        UserRole adminRole = parseRole(admin.getRole());
+        UserRole targetRole = parseRole(target.getRole());
+
+        if (adminRole != UserRole.SUPER_ADMIN && targetRole != UserRole.USER) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Tylko SUPER_ADMIN może odblokowywać konta adminów");
+        }
+        if (!target.isBlocked()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Konto nie jest zablokowane");
+        }
+
+        target.setBlocked(false);
+        target.setBlockedAt(null);
+        target.setBlockReason(null);
+        target.setBlockedByAdminId(null);
+        return UserAdminView.from(userRepository.save(target));
+    }
+
+    /** Paginowana lista wszystkich użytkowników z opcjonalnym filtrem po emailu i statusie blokady. */
+    @Transactional(readOnly = true)
+    public Page<UserAdminView> listUsers(String emailFilter, Boolean blocked, int page, int size) {
+        String filter = (emailFilter == null || emailFilter.isBlank()) ? null : emailFilter.trim();
+        return userRepository.findAllWithFilters(filter, blocked, PageRequest.of(page, size))
+                .map(UserAdminView::from);
+    }
+
+    /** Pobiera szczegóły pojedynczego użytkownika. */
+    @Transactional(readOnly = true)
+    public UserAdminView getUserDetails(Long targetId) {
+        User user = userRepository.findById(targetId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Użytkownik nie znaleziony"));
+        return UserAdminView.from(user);
     }
 
     // ---------- helpers ----------
