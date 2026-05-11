@@ -418,7 +418,7 @@ public class PulseService {
     }
 
     @Transactional(readOnly = true)
-    public PhotoRef resolvePhotoForUser(Long photoId, Long userId) {
+    public PhotoRef resolvePhotoForUser(Long photoId, Long userId, boolean isAdmin) {
         PulsePhoto photo = loadPhoto(photoId);
 
         // Używamy pulseId (zwykły @Column) zamiast getPulse() —
@@ -438,9 +438,9 @@ public class PulseService {
         pulse = resolveMerged(pulse);
 
         boolean isOwner = pulse.getUser() != null && userId.equals(pulse.getUser().getId());
-        boolean hasContributed = pulse.getPhotos().stream()
-                .anyMatch(p -> p.getUser() != null && userId.equals(p.getUser().getId()));
-        if (!isOwner && !hasContributed) {
+        boolean categoryAdminOnly = pulse.getCategory() != null && pulse.getCategory().isAdminOnly();
+        boolean canSeePulse = isAdmin || isOwner || !categoryAdminOnly;
+        if (!canSeePulse) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Brak dostępu do tego zdjęcia");
         }
         return toRef(photo);

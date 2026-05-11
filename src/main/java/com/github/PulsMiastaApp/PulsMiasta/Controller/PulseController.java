@@ -209,7 +209,7 @@ public class PulseController {
             @AuthenticationPrincipal AuthPrincipal principal
     ) {
         requireAuthenticated(principal);
-        PulseService.PhotoRef ref = pulseService.resolvePhotoForUser(photoId, principal.id());
+        PulseService.PhotoRef ref = pulseService.resolvePhotoForUser(photoId, principal.id(), principal.isAdmin());
         return buildPhotoResponse(photoStorageService, ref, ifNoneMatch);
     }
 
