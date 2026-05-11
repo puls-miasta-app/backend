@@ -9,6 +9,7 @@ import com.github.PulsMiastaApp.PulsMiasta.Model.Enums.PulseReportStatus;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Enums.PulseStatus;
 import com.github.PulsMiastaApp.PulsMiasta.Repository.PulseFeedJdbcRepository;
 import com.github.PulsMiastaApp.PulsMiasta.Repository.PulseReportRepository;
+import com.github.PulsMiastaApp.PulsMiasta.Repository.PulseRepository;
 import com.github.PulsMiastaApp.PulsMiasta.Repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -30,6 +31,7 @@ public class PulseReportService {
     private static final int MAX_ADMIN_NOTE = 2000;
 
     private final PulseReportRepository reportRepository;
+    private final PulseRepository pulseRepository;
     private final PulseFeedJdbcRepository pulseFeedJdbcRepository;
     private final UserRepository userRepository;
 
@@ -37,7 +39,9 @@ public class PulseReportService {
 
     @Transactional
     public void report(Long pulseId, Long reporterId, String rawReason, String description) {
-        Pulse pulse = pulseFeedJdbcRepository.findByIdWithPhotos(pulseId)
+        // Use JPA PulseRepository — PulseFeedJdbcRepository returns non-managed entities
+        // (JDBC-mapped), which would cause "detached entity passed to persist" on save.
+        Pulse pulse = pulseRepository.findById(pulseId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Zgłoszenie nie znalezione"));
 
         User reporter = userRepository.findById(reporterId)
