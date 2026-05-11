@@ -56,11 +56,11 @@ public class PulseFeedJdbcRepository {
               LEFT JOIN users u ON u.id = p.user_id
             """;
 
-    public List<Pulse> findFeed(String city, String district, String street,
+    public Page<Pulse> findFeed(String city, String district, String street,
                                 String gmina, String powiat,
-                                boolean isAdmin, Long userId) {
-        StringBuilder sql = new StringBuilder(BASE_PULSE_SELECT);
-        sql.append(" WHERE p.merged_into_pulse_id IS NULL");
+                                boolean isAdmin, Long userId,
+                                Pageable pageable) {
+        StringBuilder where = new StringBuilder(" WHERE p.merged_into_pulse_id IS NULL");
         List<Object> params = new ArrayList<>();
 
         if (!isAdmin) {
@@ -68,36 +68,53 @@ public class PulseFeedJdbcRepository {
                     .filter(PulseCategory::isAdminOnly)
                     .map(Enum::name)
                     .collect(java.util.stream.Collectors.joining("','", "'", "'"));
-            sql.append(" AND (p.category NOT IN (").append(adminOnlyList).append(")");
-            sql.append(" OR p.user_id = ?)");
+            where.append(" AND (p.category NOT IN (").append(adminOnlyList).append(")");
+            where.append(" OR p.user_id = ?)");
             params.add(userId);
         }
 
         if (city != null) {
-            sql.append(" AND p.city = ?");
+            where.append(" AND p.city = ?");
             params.add(city);
         }
         if (district != null) {
-            sql.append(" AND p.district = ?");
+            where.append(" AND p.district = ?");
             params.add(district);
         }
         if (street != null) {
-            sql.append(" AND p.street = ?");
+            where.append(" AND p.street = ?");
             params.add(street);
         }
         if (gmina != null) {
-            sql.append(" AND p.gmina = ?");
+            where.append(" AND p.gmina = ?");
             params.add(gmina);
         }
         if (powiat != null) {
-            sql.append(" AND p.powiat = ?");
+            where.append(" AND p.powiat = ?");
             params.add(powiat);
         }
-        sql.append(" ORDER BY p.created_at DESC");
 
-        List<Pulse> pulses = runPulseQuery(sql.toString(), params);
+        String countSql = "SELECT COUNT(*) FROM pulses p" + where;
+        long total = jdbcTemplate.execute((java.sql.Connection conn) -> {
+            try (PreparedStatement ps = conn.prepareStatement(countSql)) {
+                for (int i = 0; i < params.size(); i++) ps.setObject(i + 1, params.get(i));
+                if (ps.execute()) {
+                    try (ResultSet rs = ps.getResultSet()) {
+                        return rs.next() ? rs.getLong(1) : 0L;
+                    }
+                }
+                return 0L;
+            }
+        });
+
+        String dataSql = BASE_PULSE_SELECT + where + " ORDER BY p.created_at DESC LIMIT ? OFFSET ?";
+        List<Object> dataParams = new ArrayList<>(params);
+        dataParams.add(pageable.getPageSize());
+        dataParams.add(pageable.getOffset());
+
+        List<Pulse> pulses = runPulseQuery(dataSql, dataParams);
         attachPhotos(pulses);
-        return pulses;
+        return new org.springframework.data.domain.PageImpl<>(pulses, pageable, total);
     }
 
     public List<Pulse> findAllVisibleToUser(Long userId) {

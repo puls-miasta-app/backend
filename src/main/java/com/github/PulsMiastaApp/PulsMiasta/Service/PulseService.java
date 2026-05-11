@@ -218,13 +218,15 @@ public class PulseService {
     // ---------- READ ----------
 
     @Transactional(readOnly = true)
-    public List<Pulse> listFeed(String city, String district, String street,
+    public Page<Pulse> listFeed(String city, String district, String street,
                                 String gmina, String powiat,
-                                boolean isAdmin, Long userId) {
+                                boolean isAdmin, Long userId,
+                                int page, int size) {
+        var pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
         return pulseFeedJdbcRepository.findFeed(
                 blankToNull(city), blankToNull(district), blankToNull(street),
                 blankToNull(gmina), blankToNull(powiat),
-                isAdmin, userId);
+                isAdmin, userId, pageable);
     }
 
     /** Zwraca kierunek głosu użytkownika dla pulse'a (null, jeśli nie głosował). */
