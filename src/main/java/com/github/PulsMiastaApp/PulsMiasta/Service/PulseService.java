@@ -218,13 +218,15 @@ public class PulseService {
     // ---------- READ ----------
 
     @Transactional(readOnly = true)
-    public List<Pulse> listFeed(String city, String district, String street,
+    public Page<Pulse> listFeed(String city, String district, String street,
                                 String gmina, String powiat,
-                                boolean isAdmin, Long userId) {
+                                boolean isAdmin, Long userId,
+                                int page, int size) {
+        var pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
         return pulseFeedJdbcRepository.findFeed(
                 blankToNull(city), blankToNull(district), blankToNull(street),
                 blankToNull(gmina), blankToNull(powiat),
-                isAdmin, userId);
+                isAdmin, userId, pageable);
     }
 
     /** Zwraca kierunek głosu użytkownika dla pulse'a (null, jeśli nie głosował). */
@@ -416,7 +418,7 @@ public class PulseService {
     }
 
     @Transactional(readOnly = true)
-    public PhotoRef resolvePhotoForUser(Long photoId, Long userId) {
+    public PhotoRef resolvePhotoForUser(Long photoId, Long userId, boolean isAdmin) {
         PulsePhoto photo = loadPhoto(photoId);
 
         // Używamy pulseId (zwykły @Column) zamiast getPulse() —
@@ -436,9 +438,9 @@ public class PulseService {
         pulse = resolveMerged(pulse);
 
         boolean isOwner = pulse.getUser() != null && userId.equals(pulse.getUser().getId());
-        boolean hasContributed = pulse.getPhotos().stream()
-                .anyMatch(p -> p.getUser() != null && userId.equals(p.getUser().getId()));
-        if (!isOwner && !hasContributed) {
+        boolean categoryAdminOnly = pulse.getCategory() != null && pulse.getCategory().isAdminOnly();
+        boolean canSeePulse = isAdmin || isOwner || !categoryAdminOnly;
+        if (!canSeePulse) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Brak dostępu do tego zdjęcia");
         }
         return toRef(photo);

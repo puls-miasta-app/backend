@@ -1,0 +1,13 @@
+[{
+  "target": {
+    "sha256_cert_fingerprints": [
+      "F8:6E:09:C1:24:8D:80:30:A5:5C:E9:D6:62:B5:9E:F4:D7:CC:12:0D:6A:28:D2:35:E3:EA:B7:BE:B3:10:26:16"
+    ],
+    "package_name": "com.anonymous.pulsmiasta",
+    "namespace": "android_app"
+  },
+  "relation": [
+    "delegate_permission/common.handle_all_urls",
+    "delegate_permission/common.get_login_creds"
+  ]
+}]

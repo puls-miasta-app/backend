@@ -32,6 +32,7 @@ import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
 import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
@@ -55,23 +56,32 @@ public class PulseController {
     // ---------- FEED ----------
 
     @GetMapping
-    public ResponseEntity<SuccessResponse<Map<String, List<PulseResponse>>>> listFeed(
+    public ResponseEntity<SuccessResponse<Map<String, Object>>> listFeed(
             @RequestParam(value = "city", required = false) String city,
             @RequestParam(value = "district", required = false) String district,
             @RequestParam(value = "street", required = false) String street,
             @RequestParam(value = "gmina", required = false) String gmina,
             @RequestParam(value = "powiat", required = false) String powiat,
+            @RequestParam(value = "page", defaultValue = "0") int page,
+            @RequestParam(value = "size", defaultValue = "20") int size,
             @AuthenticationPrincipal AuthPrincipal principal
     ) {
         requireAuthenticated(principal);
-        List<Pulse> pulses = pulseService.listFeed(city, district, street, gmina, powiat,
-                principal.isAdmin(), principal.id());
-        var pulseIds = pulses.stream().map(Pulse::getId).toList();
+        if (size > 100) size = 100;
+        var pulsePage = pulseService.listFeed(city, district, street, gmina, powiat,
+                principal.isAdmin(), principal.id(), page, size);
+        var pulseIds = pulsePage.getContent().stream().map(Pulse::getId).toList();
         var votes = pulseService.getUserVotes(pulseIds, principal.id());
-        List<PulseResponse> items = pulses.stream()
+        List<PulseResponse> items = pulsePage.getContent().stream()
                 .map(p -> PulseMapper.toResponse(p, votes.get(p.getId())))
                 .toList();
-        return ResponseEntity.ok(SuccessResponse.of(Map.of("pulses", items)));
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("pulses", items);
+        body.put("page", pulsePage.getNumber());
+        body.put("size", pulsePage.getSize());
+        body.put("totalElements", pulsePage.getTotalElements());
+        body.put("totalPages", pulsePage.getTotalPages());
+        return ResponseEntity.ok(SuccessResponse.of(body));
     }
 
     // ---------- CREATE ----------
@@ -199,7 +209,7 @@ public class PulseController {
             @AuthenticationPrincipal AuthPrincipal principal
     ) {
         requireAuthenticated(principal);
-        PulseService.PhotoRef ref = pulseService.resolvePhotoForUser(photoId, principal.id());
+        PulseService.PhotoRef ref = pulseService.resolvePhotoForUser(photoId, principal.id(), principal.isAdmin());
         return buildPhotoResponse(photoStorageService, ref, ifNoneMatch);
     }
 
