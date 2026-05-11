@@ -49,7 +49,7 @@ services:
       - puls-miasta
   nginx:
     image: nginx:alpine
-    container_name: nginx-proxy
+    container_name: puls-miasta-nginx
     ports:
       - "8088:80"
     volumes:
