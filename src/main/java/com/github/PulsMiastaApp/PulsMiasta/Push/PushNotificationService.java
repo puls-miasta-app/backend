@@ -49,6 +49,7 @@ public class PushNotificationService {
         if (!canReceive(ownerId, PrefType.STATUS_UPDATES)) return;
 
         List<String> tokens = tokensFor(ownerId);
+
         if (tokens.isEmpty()) return;
 
         String title = "Aktualizacja zgłoszenia";
