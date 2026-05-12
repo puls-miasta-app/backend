@@ -100,7 +100,7 @@ class AuthControllerTest {
     void login_shouldReturn200AndSetCookies() throws Exception {
         LoginRequest request = new LoginRequest("jan@example.com", "password123", false, ClientType.WEB);
 
-        when(authService.login(any(LoginRequest.class), any()))
+        when(authService.login(any(LoginRequest.class), any(), any()))
                 .thenReturn(new LoginResult.SessionGranted("session-uuid", null, false, false));
 
         mockMvc.perform(post("/v1/auth/login")

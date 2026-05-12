@@ -49,6 +49,9 @@ class AuthServiceTest {
     @Mock
     private LoginAttemptService loginAttemptService;
 
+    @Mock
+    private TrustedDeviceService trustedDeviceService;
+
     @InjectMocks
     private AuthService authService;
 
@@ -131,7 +134,7 @@ class AuthServiceTest {
         when(userCredentialRepository.findAllByUserId(1L)).thenReturn(List.of());
         when(tokenService.createSession(1L)).thenReturn("session-token");
 
-        LoginResult result = authService.login(request, "127.0.0.1");
+        LoginResult result = authService.login(request, "127.0.0.1", null);
 
         assertThat(result).isInstanceOf(LoginResult.SessionGranted.class);
         LoginResult.SessionGranted granted = (LoginResult.SessionGranted) result;
@@ -156,7 +159,7 @@ class AuthServiceTest {
         when(tokenService.createSession(2L)).thenReturn("session-token");
         when(tokenService.createRememberMeToken(2L, ClientType.MOBILE)).thenReturn("remember-token");
 
-        LoginResult result = authService.login(request, "127.0.0.1");
+        LoginResult result = authService.login(request, "127.0.0.1", null);
 
         assertThat(result).isInstanceOf(LoginResult.SessionGranted.class);
         assertThat(((LoginResult.SessionGranted) result).rememberMeToken()).isEqualTo("remember-token");
@@ -175,7 +178,7 @@ class AuthServiceTest {
         when(userRepository.findByEmail("jan@example.com")).thenReturn(Optional.of(user));
         when(passwordEncoder.matches("wrong-password", "hashed-password")).thenReturn(false);
 
-        assertThatThrownBy(() -> authService.login(request, "127.0.0.1"))
+        assertThatThrownBy(() -> authService.login(request, "127.0.0.1", null))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("Nieprawidłowe dane logowania");
     }
@@ -186,7 +189,7 @@ class AuthServiceTest {
 
         when(userRepository.findByEmail("nonexistent@example.com")).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> authService.login(request, "127.0.0.1"))
+        assertThatThrownBy(() -> authService.login(request, "127.0.0.1", null))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("Nieprawidłowe dane logowania");
     }
