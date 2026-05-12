@@ -25,6 +25,7 @@ public class AuthTokenFilter extends OncePerRequestFilter {
 
     public static final String SESSION_COOKIE_NAME = "auth_token";
     public static final String REMEMBER_ME_COOKIE_NAME = "remember_me";
+    public static final String TRUSTED_DEVICE_COOKIE_NAME = "trusted_device";
 
     // Mobile clients cannot read HttpOnly cookies — expose tokens in response headers instead.
     // The mobile app reads these headers, stores them in SecureStore, and sends them in Cookie header.

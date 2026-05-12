@@ -28,6 +28,7 @@ public class AuthService {
     private final EmailVerificationService emailVerificationService;
     private final TwoFactorPendingService twoFactorPendingService;
     private final LoginAttemptService loginAttemptService;
+    private final TrustedDeviceService trustedDeviceService;
 
     public AuthResult register(RegisterRequest request) {
         if (userRepository.existsByEmail(request.email())) {
@@ -65,7 +66,7 @@ public class AuthService {
      * @param clientIp resolved client IP from {@link RateLimitService#getClientIp}
      * @return {@link LoginResult} — either a full session or a pending 2FA token
      */
-    public LoginResult login(LoginRequest request, String clientIp) {
+    public LoginResult login(LoginRequest request, String clientIp, String trustedDeviceToken) {
         User user = userRepository.findByEmail(request.email()).orElse(null);
 
         if (user == null) {
@@ -88,6 +89,13 @@ public class AuthService {
         List<String> availableMethods = buildAvailableMethods(user);
 
         if (!availableMethods.isEmpty()) {
+            // Zaufane urządzenie — pomijamy 2FA.
+            if (trustedDeviceToken != null && trustedDeviceService.isTokenValid(user.getId(), trustedDeviceToken)) {
+                boolean isAdmin = UserRole.valueOf(user.getRole()).isAdmin();
+                AuthResult result = buildAuthResult(user.getId(), request.rememberMe(), request.clientType());
+                return new LoginResult.SessionGranted(result.sessionToken(), result.rememberMeToken(),
+                        user.isMustChangePassword(), isAdmin);
+            }
             // Co najmniej jedna metoda 2FA jest włączona — wymagamy drugiego kroku.
             String pendingToken = twoFactorPendingService.createPendingToken(user.getId(), availableMethods);
             return new LoginResult.TwoFactorRequired(pendingToken, availableMethods, user.getTwoFactorDefaultMethod());
