@@ -1,5 +1,6 @@
 package com.github.PulsMiastaApp.PulsMiasta.Controller;
 
+import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.SuccessResponse;
 import com.github.PulsMiastaApp.PulsMiasta.Security.Model.AuthPrincipal;
 import com.github.PulsMiastaApp.PulsMiasta.Security.Service.WsTokenService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -47,15 +48,18 @@ public class WsTokenController {
                     content = @Content(mediaType = "application/json",
                             examples = @ExampleObject(value = """
                                     {
-                                      "token": "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+                                        "success": true,
+                                        data: {
+                                            "token": "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+                                        }
                                     }
                                     """))),
             @ApiResponse(responseCode = "401", description = "Brak uwierzytelnienia")
     })
     @PostMapping("/v1/ws-token")
-    public ResponseEntity<Map<String, String>> issue(@AuthenticationPrincipal AuthPrincipal principal) {
+    public ResponseEntity<SuccessResponse<Map<String, String>>> issue(@AuthenticationPrincipal AuthPrincipal principal) {
         if (principal == null) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
         String token = wsTokenService.createToken(principal.id());
-        return ResponseEntity.ok(Map.of("token", token));
+        return ResponseEntity.ok(SuccessResponse.of(Map.of("token", token)));
     }
 }
