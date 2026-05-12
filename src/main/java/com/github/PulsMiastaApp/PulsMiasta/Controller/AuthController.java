@@ -189,7 +189,7 @@ public class AuthController {
         if (isMobile) {
             AuthTokenFilter.applyMobileTokenHeaders(response, result, request.rememberMe());
         }
-        if (request.rememberDevice()) {
+        if (Boolean.TRUE.equals(request.rememberDevice())) {
             String deviceToken = trustedDeviceService.createToken(userId);
             AuthTokenFilter.addCookie(response, AuthTokenFilter.TRUSTED_DEVICE_COOKIE_NAME,
                     deviceToken, (int) trustedDeviceService.getTtlSeconds());
@@ -241,7 +241,7 @@ public class AuthController {
         if (isMobile) {
             AuthTokenFilter.applyMobileTokenHeaders(response, result, request.rememberMe());
         }
-        if (request.rememberDevice()) {
+        if (Boolean.TRUE.equals(request.rememberDevice())) {
             String deviceToken = trustedDeviceService.createToken(userId);
             AuthTokenFilter.addCookie(response, AuthTokenFilter.TRUSTED_DEVICE_COOKIE_NAME,
                     deviceToken, (int) trustedDeviceService.getTtlSeconds());
@@ -298,7 +298,7 @@ public class AuthController {
         if (isMobile) {
             AuthTokenFilter.applyMobileTokenHeaders(response, result, request.rememberMe());
         }
-        if (request.rememberDevice()) {
+        if (Boolean.TRUE.equals(request.rememberDevice())) {
             String deviceToken = trustedDeviceService.createToken(userId);
             AuthTokenFilter.addCookie(response, AuthTokenFilter.TRUSTED_DEVICE_COOKIE_NAME,
                     deviceToken, (int) trustedDeviceService.getTtlSeconds());
@@ -627,7 +627,7 @@ public class AuthController {
             @NotBlank @Pattern(regexp = "\\d{6}", message = "Code must be exactly 6 digits") String code,
             boolean rememberMe,
             ClientType clientType,
-            boolean rememberDevice
+            Boolean rememberDevice
     ) {
     }
 
@@ -640,7 +640,7 @@ public class AuthController {
             @jakarta.validation.constraints.NotNull AuthenticationFinishRequest.AssertionResponse response,
             boolean rememberMe,
             @jakarta.validation.constraints.NotNull ClientType clientType,
-            boolean rememberDevice
+            Boolean rememberDevice
     ) {
     }
 
@@ -649,7 +649,7 @@ public class AuthController {
             @NotBlank @Pattern(regexp = "\\d{6}", message = "TOTP code must be exactly 6 digits") String totpCode,
             boolean rememberMe,
             ClientType clientType,
-            boolean rememberDevice
+            Boolean rememberDevice
     ) {
     }
 
