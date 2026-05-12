@@ -156,9 +156,20 @@
       document.getElementById('btnSend').disabled = !connected;
     }
 
-    function connect() {
-      const url = document.getElementById('serverUrl').value;
-      log(`Łączę z ${url}...`, 'msg-system');
+    async function connect() {
+      const baseUrl = document.getElementById('serverUrl').value;
+      log(`Pobieram token WS...`, 'msg-system');
+
+      let token;
+      try {
+        token = await fetchWsToken();
+      } catch (e) {
+        log(`Błąd pobierania tokenu: ${e.message} — zaloguj się najpierw`, 'msg-error');
+        return;
+      }
+
+      const url = `${baseUrl}?token=${token}`;
+      log(`Łączę z ${baseUrl}...`, 'msg-system');
 
       client = new StompJs.Client({
         webSocketFactory: () => new WebSocket(url),
@@ -214,6 +225,13 @@
       }, {});
 
       log(`✅ Subskrybuję wątek #${threadId} — czekam na wiadomości...`, 'msg-system');
+    }
+
+    async function fetchWsToken() {
+      const resp = await fetch('/api/v1/ws-token', { method: 'POST', credentials: 'include' });
+      if (!resp.ok) throw new Error(`ws-token ${resp.status}`);
+      const { token } = await resp.json();
+      return token;
     }
 
     async function sendMessage() {

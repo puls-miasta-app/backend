@@ -2,9 +2,8 @@ package com.github.PulsMiastaApp.PulsMiasta.Config;
 
 import com.github.PulsMiastaApp.PulsMiasta.Repository.UserRepository;
 import com.github.PulsMiastaApp.PulsMiasta.Security.Model.AuthPrincipal;
-import com.github.PulsMiastaApp.PulsMiasta.Security.Service.TokenService;
+import com.github.PulsMiastaApp.PulsMiasta.Security.Service.WsTokenService;
 import com.github.PulsMiastaApp.PulsMiasta.Security.WebSocket.WebSocketChannelInterceptor;
-import jakarta.servlet.http.Cookie;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Configuration;
@@ -20,7 +19,6 @@ import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerCo
 import org.springframework.web.socket.server.HandshakeInterceptor;
 
 import java.util.Map;
-import java.util.Optional;
 
 @Slf4j
 @Configuration
@@ -28,7 +26,7 @@ import java.util.Optional;
 @RequiredArgsConstructor
 public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
-    private final TokenService tokenService;
+    private final WsTokenService wsTokenService;
     private final UserRepository userRepository;
     private final WebSocketChannelInterceptor channelInterceptor;
 
@@ -52,10 +50,6 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
         registration.interceptors(channelInterceptor);
     }
 
-    /**
-     * Interceptor HTTP handshake — wyciąga token z ciasteczka i zapisuje AuthPrincipal
-     * w atrybutach sesji WebSocket. Potem ChannelInterceptor odczyta go ze STOMP CONNECT.
-     */
     private HandshakeInterceptor authHandshakeInterceptor() {
         return new HandshakeInterceptor() {
             @Override
@@ -64,23 +58,19 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
                                            WebSocketHandler wsHandler,
                                            Map<String, Object> attributes) {
                 if (request instanceof ServletServerHttpRequest servletRequest) {
-                    Cookie[] cookies = servletRequest.getServletRequest().getCookies();
-                    if (cookies != null) {
-                        for (Cookie cookie : cookies) {
-                            if ("auth_token".equals(cookie.getName())) {
-                                Optional<Long> userId = tokenService.getUserIdAndSlide(cookie.getValue());
-                                userId.flatMap(id -> userRepository.findByIdWithGeo(id))
-                                        .map(AuthPrincipal::from)
-                                        .ifPresent(principal -> {
-                                            attributes.put("principal", principal);
-                                            log.debug("WS handshake auth OK — userId={}", principal.id());
-                                        });
-                                break;
-                            }
+                    String token = servletRequest.getServletRequest().getParameter("token");
+                    if (token != null) {
+                        Long userId = wsTokenService.consumeToken(token);
+                        if (userId != null) {
+                            userRepository.findByIdWithGeo(userId)
+                                    .map(AuthPrincipal::from)
+                                    .ifPresent(principal -> {
+                                        attributes.put("principal", principal);
+                                        log.debug("WS handshake auth OK — userId={}", principal.id());
+                                    });
                         }
                     }
                 }
-                // Zwróć true zawsze — auth weryfikujemy w ChannelInterceptor (STOMP CONNECT)
                 return true;
             }
 
