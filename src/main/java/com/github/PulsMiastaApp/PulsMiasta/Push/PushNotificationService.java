@@ -6,7 +6,6 @@ import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.PulseComment;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.User;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Enums.ChatThreadStatus;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Enums.PulseStatus;
-import com.github.PulsMiastaApp.PulsMiasta.Repository.ChatMessageRepository;
 import com.github.PulsMiastaApp.PulsMiasta.Repository.ChatThreadRepository;
 import com.github.PulsMiastaApp.PulsMiasta.Repository.DeviceRegistrationRepository;
 import com.github.PulsMiastaApp.PulsMiasta.Repository.NotificationPreferencesRepository;
@@ -36,7 +35,6 @@ public class PushNotificationService {
     private final PulseFeedJdbcRepository pulseFeedJdbcRepository;
     private final PulseCommentRepository commentRepository;
     private final ChatThreadRepository chatThreadRepository;
-    private final ChatMessageRepository chatMessageRepository;
 
     /** Powiadamia właściciela pulsa o zmianie statusu przez admina. */
     @Async("photoUploadExecutor")
@@ -157,41 +155,33 @@ public class PushNotificationService {
 
     /** Powiadamia obywatela że admin odpowiedział na wątek. */
     @Async("chatNotificationExecutor")
-    @Transactional(readOnly = true)
-    public void notifyChatAdminReply(Long threadId, Long messageId, Long citizenId) {
+    public void notifyChatAdminReply(Long threadId, Long citizenId, String senderName, String plainBody) {
         if (!canReceive(citizenId, PrefType.CHAT_MESSAGES)) return;
         List<String> tokens = tokensFor(citizenId);
         if (tokens.isEmpty()) return;
 
-        chatMessageRepository.findByIdWithSender(messageId).ifPresent(msg -> {
-            String senderName = displayName(msg.getSender());
-            expoPushService.send(tokens,
-                    senderName + " odpowiedział na Twój wątek",
-                    truncate(msg.getBody(), 100),
-                    "pulse-chat",
-                    Map.of("threadId", threadId, "type", "chat.admin_reply")
-            );
-        });
+        expoPushService.send(tokens,
+                senderName + " odpowiedział na Twój wątek",
+                truncate(plainBody, 100),
+                "pulse-chat",
+                Map.of("threadId", threadId, "type", "chat.admin_reply")
+        );
     }
 
     /** Powiadamia urzędnika (jeśli przypisany) że obywatel wysłał nową wiadomość. */
     @Async("chatNotificationExecutor")
-    @Transactional(readOnly = true)
-    public void notifyChatUserMessage(Long threadId, Long messageId, Long senderId, Long assignedToId) {
+    public void notifyChatUserMessage(Long threadId, Long assignedToId, String senderName, String plainBody) {
         if (assignedToId == null) return;
         if (!canReceive(assignedToId, PrefType.CHAT_MESSAGES)) return;
         List<String> tokens = tokensFor(assignedToId);
         if (tokens.isEmpty()) return;
 
-        chatMessageRepository.findByIdWithSender(messageId).ifPresent(msg -> {
-            String senderName = displayName(msg.getSender());
-            expoPushService.send(tokens,
-                    senderName + " wysłał wiadomość w wątku",
-                    truncate(msg.getBody(), 100),
-                    "pulse-chat",
-                    Map.of("threadId", threadId, "type", "chat.user_message")
-            );
-        });
+        expoPushService.send(tokens,
+                senderName + " wysłał wiadomość w wątku",
+                truncate(plainBody, 100),
+                "pulse-chat",
+                Map.of("threadId", threadId, "type", "chat.user_message")
+        );
     }
 
     /** Powiadamia właściciela pulsa o nowym wątku czatu otwartym przez inną osobę. */

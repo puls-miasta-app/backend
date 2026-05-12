@@ -217,23 +217,24 @@ public class ChatService {
         }
         threadRepository.save(thread);
 
-        Long msgId = msg.getId();
-        Long senderId = principal.id();
         Long threadIdCaptured = threadId;
         ChatDtos.ChatMessageResponse msgResponse = toMessageResponse(msg);
+        String senderName = sender.getFirstName() != null && !sender.getFirstName().isBlank()
+                ? sender.getFirstName() : "Użytkownik";
+        String plainBody = msgResponse.body();
 
         // Broadcast real-time przez WebSocket + push notification — po commicie transakcji
         if (principal.isAdmin()) {
             Long citizenId = thread.getUser().getId();
             registerAfterCommit(() -> {
                 broadcastMessage(threadIdCaptured, msgResponse);
-                pushNotificationService.notifyChatAdminReply(threadIdCaptured, msgId, citizenId);
+                pushNotificationService.notifyChatAdminReply(threadIdCaptured, citizenId, senderName, plainBody);
             });
         } else {
             Long assignedId = thread.getAssignedTo() != null ? thread.getAssignedTo().getId() : null;
             registerAfterCommit(() -> {
                 broadcastMessage(threadIdCaptured, msgResponse);
-                pushNotificationService.notifyChatUserMessage(threadIdCaptured, msgId, senderId, assignedId);
+                pushNotificationService.notifyChatUserMessage(threadIdCaptured, assignedId, senderName, plainBody);
             });
         }
 
