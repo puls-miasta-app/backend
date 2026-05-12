@@ -16,7 +16,7 @@ import java.util.UUID;
 public class WsTokenService {
 
     private static final String PREFIX = "ws_token:";
-    private static final Duration TTL = Duration.ofSeconds(30);
+    private static final Duration TTL = Duration.ofSeconds(90);
 
     private final StringRedisTemplate redisTemplate;
 

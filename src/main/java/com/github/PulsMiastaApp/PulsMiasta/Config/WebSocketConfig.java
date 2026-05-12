@@ -63,16 +63,22 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
                                            Map<String, Object> attributes) {
                 if (request instanceof ServletServerHttpRequest servletRequest) {
                     String token = servletRequest.getServletRequest().getParameter("token");
+                    log.info("WS handshake — token present: {}, uri: {}", token != null, request.getURI());
                     if (token != null) {
                         Long userId = wsTokenService.consumeToken(token);
+                        log.info("WS handshake — consumeToken result: userId={}", userId);
                         if (userId != null) {
                             userRepository.findByIdWithGeo(userId)
                                     .map(AuthPrincipal::from)
-                                    .ifPresent(principal -> {
+                                    .ifPresentOrElse(principal -> {
                                         attributes.put("principal", principal);
-                                        log.debug("WS handshake auth OK — userId={}", principal.id());
-                                    });
+                                        log.info("WS handshake auth OK — userId={}", principal.id());
+                                    }, () -> log.warn("WS handshake — user not found for userId={}", userId));
+                        } else {
+                            log.warn("WS handshake — token not found in Redis (expired or already used)");
                         }
+                    } else {
+                        log.warn("WS handshake — no token in query params");
                     }
                 }
                 return true;
