@@ -1,161 +1,247 @@
 <!DOCTYPE html>
 <html lang="pl">
+
 <head>
   <meta charset="UTF-8">
   <title>Chat Test — PulsMiasta</title>
   <script src="https://cdn.jsdelivr.net/npm/@stomp/stompjs@7/bundles/stomp.umd.min.js"></script>
   <style>
-    body { font-family: monospace; max-width: 800px; margin: 40px auto; padding: 0 20px; background: #0d1117; color: #c9d1d9; }
-    h2 { color: #58a6ff; }
-    label { color: #8b949e; font-size: 13px; }
-    input { background: #161b22; border: 1px solid #30363d; color: #c9d1d9; padding: 6px 10px; border-radius: 6px; width: 100%; box-sizing: border-box; margin: 4px 0 12px; }
-    button { background: #238636; color: #fff; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; margin-right: 8px; }
-    button:disabled { background: #21262d; color: #484f58; cursor: not-allowed; }
-    button.danger { background: #b62324; }
-    #log { background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 12px; height: 400px; overflow-y: auto; font-size: 13px; line-height: 1.6; }
-    .msg-user   { color: #3fb950; }
-    .msg-admin  { color: #58a6ff; }
-    .msg-system { color: #8b949e; font-style: italic; }
-    .msg-error  { color: #f85149; }
-    .msg-sent   { color: #d2a8ff; }
-    .status { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #f85149; margin-right: 8px; }
-    .status.connected { background: #3fb950; }
-    #statusRow { display: flex; align-items: center; margin-bottom: 16px; }
+    body {
+      font-family: monospace;
+      max-width: 800px;
+      margin: 40px auto;
+      padding: 0 20px;
+      background: #0d1117;
+      color: #c9d1d9;
+    }
+
+    h2 {
+      color: #58a6ff;
+    }
+
+    label {
+      color: #8b949e;
+      font-size: 13px;
+    }
+
+    input {
+      background: #161b22;
+      border: 1px solid #30363d;
+      color: #c9d1d9;
+      padding: 6px 10px;
+      border-radius: 6px;
+      width: 100%;
+      box-sizing: border-box;
+      margin: 4px 0 12px;
+    }
+
+    button {
+      background: #238636;
+      color: #fff;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      margin-right: 8px;
+    }
+
+    button:disabled {
+      background: #21262d;
+      color: #484f58;
+      cursor: not-allowed;
+    }
+
+    button.danger {
+      background: #b62324;
+    }
+
+    #log {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      padding: 12px;
+      height: 400px;
+      overflow-y: auto;
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    .msg-user {
+      color: #3fb950;
+    }
+
+    .msg-admin {
+      color: #58a6ff;
+    }
+
+    .msg-system {
+      color: #8b949e;
+      font-style: italic;
+    }
+
+    .msg-error {
+      color: #f85149;
+    }
+
+    .msg-sent {
+      color: #d2a8ff;
+    }
+
+    .status {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #f85149;
+      margin-right: 8px;
+    }
+
+    .status.connected {
+      background: #3fb950;
+    }
+
+    #statusRow {
+      display: flex;
+      align-items: center;
+      margin-bottom: 16px;
+    }
   </style>
 </head>
+
 <body>
 
-<h2>🔌 PulsMiasta — Chat WebSocket Test</h2>
+  <h2>🔌 PulsMiasta — Chat WebSocket Test</h2>
 
-<div id="statusRow">
-  <span class="status" id="statusDot"></span>
-  <span id="statusText">Rozłączony</span>
-</div>
+  <div id="statusRow">
+    <span class="status" id="statusDot"></span>
+    <span id="statusText">Rozłączony</span>
+  </div>
 
-<label>Server URL</label>
-<input id="serverUrl" value="ws://localhost:8088/api/ws/chat">
+  <label>Server URL</label>
+  <input id="serverUrl" value="wss://pulsmiasta.online/api/ws/chat">
 
-<label>Thread ID (z bazy / z odpowiedzi POST /v1/pulses/{id}/chat)</label>
-<input id="threadId" value="1" type="number">
+  <label>Thread ID (z bazy / z odpowiedzi POST /v1/pulses/{id}/chat)</label>
+  <input id="threadId" value="1" type="number">
 
-<div style="margin-bottom: 16px;">
-  <button id="btnConnect" onclick="connect()">Połącz</button>
-  <button id="btnDisconnect" onclick="disconnect()" disabled class="danger">Rozłącz</button>
-  <button id="btnSubscribe" onclick="subscribe()" disabled>Subskrybuj wątek</button>
-</div>
+  <div style="margin-bottom: 16px;">
+    <button id="btnConnect" onclick="connect()">Połącz</button>
+    <button id="btnDisconnect" onclick="disconnect()" disabled class="danger">Rozłącz</button>
+    <button id="btnSubscribe" onclick="subscribe()" disabled>Subskrybuj wątek</button>
+  </div>
 
-<label>Wyślij wiadomość przez REST (wymaga zalogowania w tej samej przeglądarce)</label>
-<input id="msgInput" placeholder="Wpisz wiadomość..." onkeydown="if(event.key==='Enter') sendMessage()">
-<button id="btnSend" onclick="sendMessage()" disabled>Wyślij (POST REST)</button>
+  <label>Wyślij wiadomość przez REST (wymaga zalogowania w tej samej przeglądarce)</label>
+  <input id="msgInput" placeholder="Wpisz wiadomość..." onkeydown="if(event.key==='Enter') sendMessage()">
+  <button id="btnSend" onclick="sendMessage()" disabled>Wyślij (POST REST)</button>
 
-<hr style="border-color: #30363d; margin: 20px 0;">
-<div id="log"></div>
+  <hr style="border-color: #30363d; margin: 20px 0;">
+  <div id="log"></div>
 
-<script>
-  let client = null;
-  let subscription = null;
+  <script>
+    let client = null;
+    let subscription = null;
 
-  function log(text, cls = '') {
-    const div = document.getElementById('log');
-    const ts = new Date().toLocaleTimeString('pl-PL');
-    div.innerHTML += `<div class="${cls}">[${ts}] ${text}</div>`;
-    div.scrollTop = div.scrollHeight;
-  }
-
-  function setStatus(connected) {
-    document.getElementById('statusDot').className = 'status' + (connected ? ' connected' : '');
-    document.getElementById('statusText').textContent = connected ? 'Połączony' : 'Rozłączony';
-    document.getElementById('btnConnect').disabled = connected;
-    document.getElementById('btnDisconnect').disabled = !connected;
-    document.getElementById('btnSubscribe').disabled = !connected;
-    document.getElementById('btnSend').disabled = !connected;
-  }
-
-  function connect() {
-    const url = document.getElementById('serverUrl').value;
-    log(`Łączę z ${url}...`, 'msg-system');
-
-    client = new StompJs.Client({
-      webSocketFactory: () => new WebSocket(url),
-      reconnectDelay: 0,
-      onConnect: () => {
-        log('✅ Połączono przez WebSocket + STOMP', 'msg-system');
-        setStatus(true);
-      },
-      onDisconnect: () => {
-        log('❌ Rozłączono', 'msg-system');
-        setStatus(false);
-      },
-      onStompError: (frame) => {
-        log('STOMP ERROR: ' + (frame.headers?.message || JSON.stringify(frame)), 'msg-error');
-      },
-      onWebSocketError: (e) => {
-        log('WebSocket ERROR: ' + e, 'msg-error');
-      },
-      debug: (str) => console.log('[STOMP]', str),
-    });
-
-    client.activate();
-  }
-
-  function disconnect() {
-    if (subscription) { subscription.unsubscribe(); subscription = null; }
-    if (client) { client.deactivate(); client = null; }
-    setStatus(false);
-    log('Rozłączono ręcznie.', 'msg-system');
-  }
-
-  function subscribe() {
-    const threadId = document.getElementById('threadId').value;
-    const topic = `/topic/thread.${threadId}`;
-
-    if (subscription) {
-      subscription.unsubscribe();
-      log(`Odsubskrybowano poprzedni wątek.`, 'msg-system');
+    function log(text, cls = '') {
+      const div = document.getElementById('log');
+      const ts = new Date().toLocaleTimeString('pl-PL');
+      div.innerHTML += `<div class="${cls}">[${ts}] ${text}</div>`;
+      div.scrollTop = div.scrollHeight;
     }
 
-    log(`Subskrybuję ${topic}...`, 'msg-system');
-    subscription = client.subscribe(topic, (frame) => {
-      try {
-        const msg = JSON.parse(frame.body);
-        const isAdmin = msg.senderRole && msg.senderRole !== 'USER';
-        const cls = isAdmin ? 'msg-admin' : 'msg-user';
-        const role = isAdmin ? `[${msg.senderRole}]` : '[Mieszkaniec]';
-        const name = `${msg.senderFirstName || ''} ${msg.senderLastName || ''}`.trim() || msg.senderEmail || '?';
-        log(`📨 ${role} <b>${name}</b>: ${msg.body}`, cls);
-      } catch(e) {
-        log('📨 RAW: ' + frame.body, 'msg-admin');
-      }
-    }, {});
+    function setStatus(connected) {
+      document.getElementById('statusDot').className = 'status' + (connected ? ' connected' : '');
+      document.getElementById('statusText').textContent = connected ? 'Połączony' : 'Rozłączony';
+      document.getElementById('btnConnect').disabled = connected;
+      document.getElementById('btnDisconnect').disabled = !connected;
+      document.getElementById('btnSubscribe').disabled = !connected;
+      document.getElementById('btnSend').disabled = !connected;
+    }
 
-    log(`✅ Subskrybuję wątek #${threadId} — czekam na wiadomości...`, 'msg-system');
-  }
+    function connect() {
+      const url = document.getElementById('serverUrl').value;
+      log(`Łączę z ${url}...`, 'msg-system');
 
-  async function sendMessage() {
-    const threadId = document.getElementById('threadId').value;
-    const body = document.getElementById('msgInput').value.trim();
-    if (!body) return;
-
-    log(`➤ Wysyłam przez REST: "${body}"`, 'msg-sent');
-
-    try {
-      const resp = await fetch(`/api/v1/chat/threads/${threadId}/messages`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include', // wysyła ciasteczko auth_token
-        body: JSON.stringify({ body }),
+      client = new StompJs.Client({
+        webSocketFactory: () => new WebSocket(url),
+        reconnectDelay: 0,
+        onConnect: () => {
+          log('✅ Połączono przez WebSocket + STOMP', 'msg-system');
+          setStatus(true);
+        },
+        onDisconnect: () => {
+          log('❌ Rozłączono', 'msg-system');
+          setStatus(false);
+        },
+        onStompError: (frame) => {
+          log('STOMP ERROR: ' + (frame.headers?.message || JSON.stringify(frame)), 'msg-error');
+        },
+        onWebSocketError: (e) => {
+          log('WebSocket ERROR: ' + e, 'msg-error');
+        },
+        debug: (str) => console.log('[STOMP]', str),
       });
-      const data = await resp.json();
-      if (!resp.ok) {
-        log(`REST ERROR ${resp.status}: ${data?.message || JSON.stringify(data)}`, 'msg-error');
-      } else {
-        log(`✅ REST 201 — wiadomość zapisana. Powinna przyjść przez WebSocket.`, 'msg-system');
-        document.getElementById('msgInput').value = '';
-      }
-    } catch(e) {
-      log('Błąd fetch: ' + e, 'msg-error');
+
+      client.activate();
     }
-  }
-</script>
+
+    function disconnect() {
+      if (subscription) { subscription.unsubscribe(); subscription = null; }
+      if (client) { client.deactivate(); client = null; }
+      setStatus(false);
+      log('Rozłączono ręcznie.', 'msg-system');
+    }
+
+    function subscribe() {
+      const threadId = document.getElementById('threadId').value;
+      const topic = `/topic/thread.${threadId}`;
+
+      if (subscription) {
+        subscription.unsubscribe();
+        log(`Odsubskrybowano poprzedni wątek.`, 'msg-system');
+      }
+
+      log(`Subskrybuję ${topic}...`, 'msg-system');
+      subscription = client.subscribe(topic, (frame) => {
+        try {
+          const msg = JSON.parse(frame.body);
+          const isAdmin = msg.senderRole && msg.senderRole !== 'USER';
+          const cls = isAdmin ? 'msg-admin' : 'msg-user';
+          const role = isAdmin ? `[${msg.senderRole}]` : '[Mieszkaniec]';
+          const name = `${msg.senderFirstName || ''} ${msg.senderLastName || ''}`.trim() || msg.senderEmail || '?';
+          log(`📨 ${role} <b>${name}</b>: ${msg.body}`, cls);
+        } catch (e) {
+          log('📨 RAW: ' + frame.body, 'msg-admin');
+        }
+      }, {});
+
+      log(`✅ Subskrybuję wątek #${threadId} — czekam na wiadomości...`, 'msg-system');
+    }
+
+    async function sendMessage() {
+      const threadId = document.getElementById('threadId').value;
+      const body = document.getElementById('msgInput').value.trim();
+      if (!body) return;
+
+      log(`➤ Wysyłam przez REST: "${body}"`, 'msg-sent');
+
+      try {
+        const resp = await fetch(`/api/v1/chat/threads/${threadId}/messages`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include', // wysyła ciasteczko auth_token
+          body: JSON.stringify({ body }),
+        });
+        const data = await resp.json();
+        if (!resp.ok) {
+          log(`REST ERROR ${resp.status}: ${data?.message || JSON.stringify(data)}`, 'msg-error');
+        } else {
+          log(`✅ REST 201 — wiadomość zapisana. Powinna przyjść przez WebSocket.`, 'msg-system');
+          document.getElementById('msgInput').value = '';
+        }
+      } catch (e) {
+        log('Błąd fetch: ' + e, 'msg-error');
+      }
+    }
+  </script>
 </body>
+
 </html>
