@@ -98,6 +98,38 @@ public class ReverseGeocodingService {
     }
 
     /**
+     * Detects the OSM highway type at the given coordinates using road-level zoom (15).
+     * Returns the OSM highway type string (e.g. "primary", "residential") when Nominatim
+     * classifies the location as class="highway", otherwise null. Never throws.
+     */
+    public String detectHighwayType(double latitude, double longitude) {
+        try {
+            Map<String, Object> response = restClient.get()
+                    .uri(uriBuilder -> uriBuilder.path("/reverse")
+                            .queryParam("lat", latitude)
+                            .queryParam("lon", longitude)
+                            .queryParam("format", "json")
+                            .queryParam("zoom", 15)
+                            .queryParam("accept-language", "pl")
+                            .build())
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<>() {});
+
+            if (response == null) return null;
+            String osmClass = asString(response.get("class"));
+            String osmType  = asString(response.get("type"));
+            if ("highway".equalsIgnoreCase(osmClass) && osmType != null && !osmType.isBlank()) {
+                log.debug("detectHighwayType ({}, {}): type={}", latitude, longitude, osmType);
+                return osmType.toLowerCase(java.util.Locale.ROOT);
+            }
+            return null;
+        } catch (Exception e) {
+            log.debug("detectHighwayType failed for ({}, {}): {}", latitude, longitude, e.getMessage());
+            return null;
+        }
+    }
+
+    /**
      * Nominatim zwraca różne pola w zależności od kraju i typu jednostki.
      * Pierwsze niepuste z: city_district, suburb, district, borough, neighbourhood,
      * quarter, city, town, village.

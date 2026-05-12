@@ -4,6 +4,7 @@ import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.Pulse;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Entities.Jpa.PulsePhoto;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Enums.PulsePriority;
 import com.github.PulsMiastaApp.PulsMiasta.Push.PushNotificationService;
+import com.github.PulsMiastaApp.PulsMiasta.Service.ReverseGeocodingService;
 import com.github.PulsMiastaApp.PulsMiasta.Repository.PulseFeedJdbcRepository;
 import com.github.PulsMiastaApp.PulsMiasta.Repository.PulsePhotoRepository;
 import lombok.RequiredArgsConstructor;
@@ -35,13 +36,21 @@ public class PulseAiAnalysisService {
     private final PulseFeedJdbcRepository pulseFeedJdbcRepository;
     private final PulsePhotoRepository pulsePhotoRepository;
     private final PushNotificationService pushNotificationService;
+    private final ReverseGeocodingService reverseGeocodingService;
 
     @Async("photoUploadExecutor")
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void analyseAsync(Long pulseId, byte[] imageBytes, String contentType) {
+    public void analyseAsync(Long pulseId, byte[] imageBytes, String contentType,
+                              Double latitude, Double longitude) {
         try {
             log.info("Starting async AI analysis for pulse {}", pulseId);
-            AiAnalysisResult result = geminiImageAnalysisService.analyse(imageBytes, contentType);
+            String roadContext = buildRoadContext(latitude, longitude);
+            if (roadContext != null) {
+                log.info("Pulse {}: road context for AI = \"{}\"", pulseId, roadContext);
+            } else {
+                log.debug("Pulse {}: no road context (lat/lng absent or highway type unknown)", pulseId);
+            }
+            AiAnalysisResult result = geminiImageAnalysisService.analyse(imageBytes, contentType, roadContext);
             if (result == null) {
                 log.warn("Gemini returned no result for pulse {}; leaving fields untouched", pulseId);
                 return;
@@ -249,6 +258,24 @@ public class PulseAiAnalysisService {
         if (source.getUser() != null) {
             pushNotificationService.notifyMerged(source.getUser().getId(), primary.getId());
         }
+    }
+
+    private String buildRoadContext(Double latitude, Double longitude) {
+        if (latitude == null || longitude == null) return null;
+        String highwayType = reverseGeocodingService.detectHighwayType(latitude, longitude);
+        if (highwayType == null) return null;
+
+        return switch (highwayType) {
+            case "motorway", "trunk", "primary" ->
+                    "Lokalizacja: główna droga miejska lub arteria z dużym natężeniem ruchu.";
+            case "secondary", "tertiary" ->
+                    "Lokalizacja: droga zbiorcza z umiarkowanym natężeniem ruchu.";
+            case "residential", "unclassified", "living_street" ->
+                    "Lokalizacja: droga lokalna lub boczna z małym ruchem. Problemy czysto kosmetyczne mają tu priorytet NISKIE.";
+            case "service", "path", "footway", "cycleway", "pedestrian" ->
+                    "Lokalizacja: droga serwisowa, ścieżka lub droga osiedlowa z minimalnym ruchem. Problemy kosmetyczne mają priorytet NISKIE.";
+            default -> null;
+        };
     }
 
     private static double haversineMeters(double lat1, double lng1, double lat2, double lng2) {

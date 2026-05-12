@@ -121,8 +121,10 @@ public class PulseService {
         final Long pulseId = pulse.getId();
         final byte[] aiBytes = firstBytes;
         final String aiContentType = firstContentType;
+        final Double aiLatitude  = latitude;
+        final Double aiLongitude = longitude;
         registerAfterCommit(() ->
-                pulseAiAnalysisService.analyseAsync(pulseId, aiBytes, aiContentType));
+                pulseAiAnalysisService.analyseAsync(pulseId, aiBytes, aiContentType, aiLatitude, aiLongitude));
 
         if (latitude != null && longitude != null) {
             registerAfterCommit(() -> enrichLocationAsync(pulseId, latitude, longitude));

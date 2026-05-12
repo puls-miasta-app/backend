@@ -39,51 +39,63 @@ public class GeminiImageAnalysisService {
     private static final ParameterizedTypeReference<Map<String, Object>> MAP_TYPE =
             new ParameterizedTypeReference<>() {};
 
-    private static final String PROMPT = """
-            Jesteś systemem analizującym zgłoszenia problemów miejskich w Polsce dla aplikacji PulsMiasta.
-            Użytkownik przesłał zdjęcie z prośbą o zgłoszenie usterki lub problemu w mieście.
+    private static String buildPrompt(String roadContext) {
+        String base = """
+                Jesteś systemem analizującym zgłoszenia problemów miejskich w Polsce dla aplikacji PulsMiasta.
+                Użytkownik przesłał zdjęcie z prośbą o zgłoszenie usterki lub problemu w mieście.
 
-            Aplikacja rozróżnia trzy kategorie zgłoszeń:
-              - RUCH: problemy związane z ruchem i infrastrukturą drogową (dziury w jezdni,
-                uszkodzone znaki drogowe, zniszczone przejścia dla pieszych, korki, wypadki).
-              - BEZPIECZENSTWO: zagrożenia dla mieszkańców (uszkodzone latarnie, graffiti,
-                wandalizm, niebezpieczne miejsca, dzikie wysypiska blokujące przejście).
-              - ZIELEN: problemy związane z miejską zielenią i środowiskiem (wyłamane drzewa,
-                zaniedbane parki, śmieci w parkach/na zieleńcach, podtopienia, dzikie wysypiska w lasach).
+                Aplikacja rozróżnia trzy kategorie zgłoszeń:
+                  - RUCH: problemy związane z ruchem i infrastrukturą drogową (dziury w jezdni,
+                    uszkodzone znaki drogowe, zniszczone przejścia dla pieszych, korki, wypadki).
+                  - BEZPIECZENSTWO: zagrożenia dla mieszkańców (uszkodzone latarnie, graffiti,
+                    wandalizm, niebezpieczne miejsca, dzikie wysypiska blokujące przejście).
+                  - ZIELEN: problemy związane z miejską zielenią i środowiskiem (wyłamane drzewa,
+                    zaniedbane parki, śmieci w parkach/na zieleńcach, podtopienia, dzikie wysypiska w lasach).
 
-            Na podstawie zdjęcia zwróć JSON o polach:
-            - category: najlepiej pasująca kategoria główna (RUCH, BEZPIECZENSTWO, ZIELEN)
-            - priority: PILNE, STANDARD lub NISKIE.
-              PILNE (tylko kilka przypadków na tysiąc — bezpośrednie zagrożenie życia/zdrowia):
-                głęboka dziura w jezdni (>15 cm), wyrwany właz kanalizacyjny, zwalone drzewo
-                blokujące drogę, odsłonięte przewody elektryczne pod napięciem, wyciek gazu,
-                grożąca zawaleniem konstrukcja.
-              STANDARD (typowe usterki infrastrukturalne): nierówny chodnik, małe ubytki asfaltu,
-                pęknięcia nawierzchni, wyboje, kałuże, graffiti, uszkodzone znaki, połamane
-                gałęzie, śmieci, niedziałające latarnie, zaniedbana zieleń.
-              NISKIE (usterki kosmetyczne bez wpływu na użytkowanie): plamy i zabrudzenia na
-                chodniku lub jezdni, nieznaczne przebarwienia nawierzchni, lekkie zadrapania
-                na ławce lub ogrodzeniu, drobne ślady farby, estetyczne zniszczenia bez
-                jakiegokolwiek zagrożenia lub utrudnienia. Domyślnie użyj STANDARD — NISKIE
-                tylko gdy problem jest wyłącznie wizualny i nie stanowi żadnego utrudnienia.
-            - title: bardzo krótki tytuł (max 8 słów) po polsku, np. "Dziura w jezdni przy skrzyżowaniu"
-            - description: krótki opis problemu po polsku (max 2 zdania, bez emoji)
-            - aiNote: jednozdaniowa notatka serwisu AI skierowana do odbiorcy (np. "Utrudnienie dla kierowców")
-            - imageHint: krótki opis zawartości zdjęcia (max 6 słów, np. "Dziura w asfalcie, krawężnik")
-            - heat: jedno z: "Wysokie", "Średnie", "Niskie" — oszacowana skala zasięgu/ważności problemu
-            - confidence: liczba 0..1 określająca pewność, że zdjęcie faktycznie pokazuje problem miejski
-            - additionalThreats: tablica dodatkowych zagrożeń widocznych na TYM SAMYM zdjęciu,
-              ale należących do INNEJ kategorii niż główna (category). Każdy element zawiera:
-              category, priority, title, description, aiNote, imageHint, heat — analogicznie jak wyżej.
-              Tablica powinna być pusta [], jeżeli wszystkie widoczne problemy należą do tej samej kategorii.
-              Maksymalnie 2 elementy. NIE powtarzaj tej samej kategorii co category ani między elementami.
+                Na podstawie zdjęcia zwróć JSON o polach:
+                - category: najlepiej pasująca kategoria główna (RUCH, BEZPIECZENSTWO, ZIELEN)
+                - priority: PILNE, STANDARD lub NISKIE.
+                  PILNE (tylko kilka przypadków na tysiąc — bezpośrednie zagrożenie życia/zdrowia):
+                    głęboka dziura w jezdni (>15 cm), wyrwany właz kanalizacyjny, zwalone drzewo
+                    blokujące drogę, odsłonięte przewody elektryczne pod napięciem, wyciek gazu,
+                    grożąca zawaleniem konstrukcja.
+                  STANDARD (usterki które realnie utrudniają użytkowanie drogi lub przestrzeni):
+                    nierówny chodnik lub nawierzchnia stanowiące ryzyko potknięcia, wyboje i ubytki
+                    asfaltu wpływające na ruch, graffiti na elewacjach, uszkodzone znaki drogowe,
+                    połamane gałęzie na chodniku, niedziałające latarnie, zaniedbana zieleń
+                    wymagająca interwencji. Użyj STANDARD tylko wtedy, gdy problem faktycznie
+                    utrudnia korzystanie z miejsca lub stanowi ryzyko.
+                  NISKIE (usterki wyłącznie kosmetyczne, bez żadnego wpływu na użytkowanie):
+                    wyblakłe oznakowanie poziome na jezdni (linie, pasy, strzałki, zebry),
+                    plamy i zabrudzenia na chodniku lub jezdni, nieznaczne przebarwienia nawierzchni,
+                    lekkie zadrapania na ławce lub ogrodzeniu, drobne ślady farby, estetyczne
+                    zniszczenia bez jakiegokolwiek zagrożenia lub utrudnienia.
+                    Domyślnie przypisuj NISKIE dla problemów czysto wizualnych — STANDARD tylko gdy
+                    problem realnie ogranicza użytkowanie miejsca lub stwarza ryzyko.
+                - title: bardzo krótki tytuł (max 8 słów) po polsku, np. "Dziura w jezdni przy skrzyżowaniu"
+                - description: krótki opis problemu po polsku (max 2 zdania, bez emoji)
+                - aiNote: jednozdaniowa notatka serwisu AI skierowana do odbiorcy (np. "Utrudnienie dla kierowców")
+                - imageHint: krótki opis zawartości zdjęcia (max 6 słów, np. "Dziura w asfalcie, krawężnik")
+                - heat: jedno z: "Wysokie", "Średnie", "Niskie" — oszacowana skala zasięgu/ważności problemu
+                - confidence: liczba 0..1 określająca pewność, że zdjęcie faktycznie pokazuje problem miejski
+                - additionalThreats: tablica dodatkowych zagrożeń widocznych na TYM SAMYM zdjęciu,
+                  ale należących do INNEJ kategorii niż główna (category). Każdy element zawiera:
+                  category, priority, title, description, aiNote, imageHint, heat — analogicznie jak wyżej.
+                  Tablica powinna być pusta [], jeżeli wszystkie widoczne problemy należą do tej samej kategorii.
+                  Maksymalnie 2 elementy. NIE powtarzaj tej samej kategorii co category ani między elementami.
 
-            Przykład: zdjęcie pokazuje jednocześnie dziurę w jezdni (RUCH) i zniszczoną latarnię
-            (BEZPIECZENSTWO) → category=RUCH, additionalThreats=[{category=BEZPIECZENSTWO,...}].
+                Przykład: zdjęcie pokazuje jednocześnie dziurę w jezdni (RUCH) i zniszczoną latarnię
+                (BEZPIECZENSTWO) → category=RUCH, additionalThreats=[{category=BEZPIECZENSTWO,...}].
 
-            Jeżeli zdjęcie nie przedstawia problemu miejskiego, ustaw category=RUCH (fallback),
-            priority=STANDARD, confidence bliskie 0, additionalThreats=[] i w description krótko wyjaśnij.
-            """;
+                Jeżeli zdjęcie nie przedstawia problemu miejskiego, ustaw category=RUCH (fallback),
+                priority=NISKIE, confidence bliskie 0, additionalThreats=[] i w description krótko wyjaśnij.
+                """;
+
+        if (roadContext != null && !roadContext.isBlank()) {
+            return base + "\n" + roadContext;
+        }
+        return base;
+    }
 
     private final GeminiProperties properties;
     private final ObjectMapper objectMapper = JsonMapper.builder().build();
@@ -121,7 +133,7 @@ public class GeminiImageAnalysisService {
      * persisted and the {@code 201} response sent, so there's no user request left to
      * fail. Errors are logged and the caller leaves the AI fields blank.
      */
-    public AiAnalysisResult analyse(byte[] imageBytes, String contentType) {
+    public AiAnalysisResult analyse(byte[] imageBytes, String contentType, String roadContext) {
         if (properties.getApiKey() == null || properties.getApiKey().isBlank()) {
             log.warn("Gemini API key not configured, skipping image analysis");
             return null;
@@ -129,7 +141,7 @@ public class GeminiImageAnalysisService {
 
         Map<String, Object> body;
         try {
-            body = buildRequestBody(imageBytes, contentType);
+            body = buildRequestBody(imageBytes, contentType, roadContext);
         } catch (Exception e) {
             log.error("Failed to build Gemini request body", e);
             return null;
@@ -183,7 +195,7 @@ public class GeminiImageAnalysisService {
         }
     }
 
-    private Map<String, Object> buildRequestBody(byte[] imageBytes, String contentType) {
+    private Map<String, Object> buildRequestBody(byte[] imageBytes, String contentType, String roadContext) {
         String base64 = Base64.getEncoder().encodeToString(imageBytes);
         String mimeType = contentType != null ? contentType : "image/jpeg";
 
@@ -193,7 +205,7 @@ public class GeminiImageAnalysisService {
         );
 
         Map<String, Object> imagePart = Map.of("inline_data", inlineData);
-        Map<String, Object> textPart = Map.of("text", PROMPT);
+        Map<String, Object> textPart = Map.of("text", buildPrompt(roadContext));
 
         Map<String, Object> content = Map.of("parts", List.of(imagePart, textPart));
 
