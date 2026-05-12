@@ -50,6 +50,7 @@ public class AuthController {
     private final SudoOtpService sudoOtpService;
     private final LoginOtpService loginOtpService;
     private final RateLimitService rateLimitService;
+    private final com.github.PulsMiastaApp.PulsMiasta.Security.Service.TrustedDeviceService trustedDeviceService;
 
     @Value("${auth.session.ttl-minutes}")
     private long sessionTtlMinutes;
@@ -134,7 +135,8 @@ public class AuthController {
         rateLimitService.checkRateLimit(httpRequest, 5, Duration.ofMinutes(1));
 
         String clientIp = rateLimitService.getClientIp(httpRequest);
-        LoginResult result = authService.login(request, clientIp);
+        String trustedDeviceToken = AuthTokenFilter.extractCookie(httpRequest, AuthTokenFilter.TRUSTED_DEVICE_COOKIE_NAME).orElse(null);
+        LoginResult result = authService.login(request, clientIp, trustedDeviceToken);
 
         return switch (result) {
             case LoginResult.SessionGranted granted -> {
@@ -187,6 +189,11 @@ public class AuthController {
         if (isMobile) {
             AuthTokenFilter.applyMobileTokenHeaders(response, result, request.rememberMe());
         }
+        if (request.rememberDevice()) {
+            String deviceToken = trustedDeviceService.createToken(userId);
+            AuthTokenFilter.addCookie(response, AuthTokenFilter.TRUSTED_DEVICE_COOKIE_NAME,
+                    deviceToken, (int) trustedDeviceService.getTtlSeconds());
+        }
         sudoModeService.activateSudoMode(result.sessionToken());
 
         return ResponseEntity.ok(SuccessResponse.of("Logged in successfully"));
@@ -233,6 +240,11 @@ public class AuthController {
                 isMobile, sessionTtlMinutes, rememberMeWebDays, rememberMeMobileDays);
         if (isMobile) {
             AuthTokenFilter.applyMobileTokenHeaders(response, result, request.rememberMe());
+        }
+        if (request.rememberDevice()) {
+            String deviceToken = trustedDeviceService.createToken(userId);
+            AuthTokenFilter.addCookie(response, AuthTokenFilter.TRUSTED_DEVICE_COOKIE_NAME,
+                    deviceToken, (int) trustedDeviceService.getTtlSeconds());
         }
         sudoModeService.activateSudoMode(result.sessionToken());
 
@@ -286,6 +298,11 @@ public class AuthController {
         if (isMobile) {
             AuthTokenFilter.applyMobileTokenHeaders(response, result, request.rememberMe());
         }
+        if (request.rememberDevice()) {
+            String deviceToken = trustedDeviceService.createToken(userId);
+            AuthTokenFilter.addCookie(response, AuthTokenFilter.TRUSTED_DEVICE_COOKIE_NAME,
+                    deviceToken, (int) trustedDeviceService.getTtlSeconds());
+        }
         sudoModeService.activateSudoMode(result.sessionToken());
 
         return ResponseEntity.ok(SuccessResponse.of("Logged in successfully"));
@@ -314,6 +331,7 @@ public class AuthController {
 
         AuthTokenFilter.clearCookie(response, AuthTokenFilter.SESSION_COOKIE_NAME);
         AuthTokenFilter.clearCookie(response, AuthTokenFilter.REMEMBER_ME_COOKIE_NAME);
+        AuthTokenFilter.clearCookie(response, AuthTokenFilter.TRUSTED_DEVICE_COOKIE_NAME);
         SecurityContextHolder.clearContext();
 
         return ResponseEntity.ok(SuccessResponse.of("Logged out successfully"));
@@ -608,7 +626,8 @@ public class AuthController {
             @NotBlank String pendingToken,
             @NotBlank @Pattern(regexp = "\\d{6}", message = "Code must be exactly 6 digits") String code,
             boolean rememberMe,
-            ClientType clientType
+            ClientType clientType,
+            boolean rememberDevice
     ) {
     }
 
@@ -620,7 +639,8 @@ public class AuthController {
             @NotBlank String type,
             @jakarta.validation.constraints.NotNull AuthenticationFinishRequest.AssertionResponse response,
             boolean rememberMe,
-            @jakarta.validation.constraints.NotNull ClientType clientType
+            @jakarta.validation.constraints.NotNull ClientType clientType,
+            boolean rememberDevice
     ) {
     }
 
@@ -628,7 +648,8 @@ public class AuthController {
             @NotBlank String pendingToken,
             @NotBlank @Pattern(regexp = "\\d{6}", message = "TOTP code must be exactly 6 digits") String totpCode,
             boolean rememberMe,
-            ClientType clientType
+            ClientType clientType,
+            boolean rememberDevice
     ) {
     }
 
