@@ -40,9 +40,11 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     @Override
     public void configureMessageBroker(MessageBrokerRegistry config) {
         // In-memory broker dla tematów /topic (broadcast do wszystkich subskrybentów)
+        var scheduler = new org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler();
+        scheduler.initialize();
         config.enableSimpleBroker("/topic")
               .setHeartbeatValue(new long[]{25000, 25000})
-              .setTaskScheduler(new org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler());
+              .setTaskScheduler(scheduler);
         // Prefix dla wiadomości wysyłanych przez klientów (nie używany — REST do wysyłania)
         config.setApplicationDestinationPrefixes("/app");
     }
