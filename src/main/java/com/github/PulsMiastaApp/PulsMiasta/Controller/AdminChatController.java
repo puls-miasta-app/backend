@@ -150,7 +150,7 @@ public class AdminChatController {
                                           "senderId": "42",
                                           "senderFirstName": "Anna",
                                           "senderLastName": "Nowak",
-                                          "senderRole": "ROLE_ADMIN_MIASTA",
+                                          "senderRole": "ADMIN_MIASTA",
                                           "body": "Dziękujemy za zgłoszenie. Planujemy naprawę w ciągu 14 dni.",
                                           "createdAt": "2025-05-11T08:15:00Z",
                                           "editedAt": null

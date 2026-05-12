@@ -167,7 +167,7 @@ public class ChatController {
                                             "senderId": "5",
                                             "senderFirstName": "Jan",
                                             "senderLastName": "Kowalski",
-                                            "senderRole": "ROLE_USER",
+                                            "senderRole": "USER",
                                             "body": "Dzień dobry, kiedy naprawa?",
                                             "createdAt": "2025-05-10T10:00:00Z",
                                             "editedAt": null
@@ -222,7 +222,7 @@ public class ChatController {
                                           "senderId": "5",
                                           "senderFirstName": "Jan",
                                           "senderLastName": "Kowalski",
-                                          "senderRole": "ROLE_USER",
+                                          "senderRole": "USER",
                                           "body": "Dziękuję za informację.",
                                           "createdAt": "2025-05-10T14:30:00Z",
                                           "editedAt": null

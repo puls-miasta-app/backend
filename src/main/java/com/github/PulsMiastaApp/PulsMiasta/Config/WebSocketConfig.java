@@ -19,9 +19,6 @@ import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
 import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer;
 import org.springframework.web.socket.server.HandshakeInterceptor;
 
-import org.springframework.beans.factory.annotation.Value;
-
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -35,14 +32,11 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     private final UserRepository userRepository;
     private final WebSocketChannelInterceptor channelInterceptor;
 
-    @Value("${cors.allowed-origins}")
-    private List<String> allowedOrigins;
-
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
         registry.addEndpoint("/ws/chat")
                 .addInterceptors(authHandshakeInterceptor())
-                .setAllowedOrigins(allowedOrigins.toArray(String[]::new));
+                .setAllowedOriginPatterns("*");
     }
 
     @Override

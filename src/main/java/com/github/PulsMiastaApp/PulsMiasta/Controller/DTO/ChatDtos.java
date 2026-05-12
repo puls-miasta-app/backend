@@ -68,9 +68,9 @@ public class ChatDtos {
             @Schema(description = "Imię nadawcy", example = "Jan") String senderFirstName,
             @Schema(description = "Nazwisko nadawcy", example = "Kowalski") String senderLastName,
             @Schema(description = "Email nadawcy", example = "jan.kowalski@example.com") String senderEmail,
-            @Schema(description = "Rola nadawcy w momencie wysłania", example = "ROLE_USER",
-                    allowableValues = {"ROLE_USER", "ROLE_ADMIN_MIASTA", "ROLE_ADMIN_GMINY",
-                            "ROLE_ADMIN_POWIATU", "ROLE_ADMIN_WOJEWODZTWA", "ROLE_SUPER_ADMIN"}) String senderRole,
+            @Schema(description = "Rola nadawcy w momencie wysłania", example = "USER",
+                    allowableValues = {"USER", "ADMIN_MIASTA", "ADMIN_GMINY",
+                            "ADMIN_POWIATU", "ADMIN_WOJEWODZTWA", "SUPER_ADMIN"}) String senderRole,
             @Schema(description = "Odszyfrowana treść wiadomości", example = "Dziękuję za odpowiedź.") String body,
             @Schema(description = "Data wysłania (ISO-8601)", example = "2025-05-10T14:30:00Z") String createdAt,
             @Schema(description = "Data edycji (ISO-8601); null jeśli niemodyfikowana", example = "null", nullable = true) String editedAt
