@@ -56,6 +56,18 @@ public interface UserRepository extends JpaRepository<User, Long> {
     @Query("SELECT DISTINCT u FROM User u JOIN u.managedGminy g WHERE u.role IN :roles AND g.id IN :gmIds ORDER BY u.id")
     List<User> findAdminsByGminyIds(@Param("roles") List<String> roles, @Param("gmIds") Collection<Long> gmIds);
 
+    /** Admini miast których miasto leży w jednym z podanych województw. */
+    @Query("SELECT DISTINCT u FROM User u JOIN u.managedMiasta m WHERE u.role IN :roles AND m.gmina.powiat.wojewodztwo.id IN :wojIds ORDER BY u.id")
+    List<User> findCityAdminsByWojewodztwaIds(@Param("roles") List<String> roles, @Param("wojIds") Collection<Long> wojIds);
+
+    /** Admini miast których miasto leży w jednym z podanych powiatów. */
+    @Query("SELECT DISTINCT u FROM User u JOIN u.managedMiasta m WHERE u.role IN :roles AND m.gmina.powiat.id IN :powIds ORDER BY u.id")
+    List<User> findCityAdminsByPowiatyIds(@Param("roles") List<String> roles, @Param("powIds") Collection<Long> powIds);
+
+    /** Admini miast których miasto leży w jednej z podanych gmin. */
+    @Query("SELECT DISTINCT u FROM User u JOIN u.managedMiasta m WHERE u.role IN :roles AND m.gmina.id IN :gmIds ORDER BY u.id")
+    List<User> findCityAdminsByGminyIds(@Param("roles") List<String> roles, @Param("gmIds") Collection<Long> gmIds);
+
     /**
      * Paginowana lista wszystkich użytkowników z opcjonalnym filtrem po emailu i statusie blokady.
      * Używana przez panel admina.

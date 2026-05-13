@@ -491,6 +491,27 @@ public class PulseService {
         return pulse;
     }
 
+    @Transactional
+    public Pulse reviewPulse(Long pulseId, PulseCategory category, PulsePriority priority,
+                              String title, String description) {
+        Pulse pulse = pulseFeedJdbcRepository.findByIdWithPhotos(pulseId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Zgłoszenie nie znalezione"));
+        if (pulse.getStatus() != PulseStatus.PENDING_REVIEW) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Zgłoszenie nie oczekuje na weryfikację (status: " + pulse.getStatus() + ")");
+        }
+        pulseFeedJdbcRepository.applyManualReview(pulseId,
+                category.name(), priority.name(),
+                title != null ? title : defaultTitleFor(category),
+                description != null ? description : pulse.getDescription());
+        pulse.setCategory(category);
+        pulse.setPriority(priority);
+        pulse.setStatus(PulseStatus.NEW);
+        if (title != null) pulse.setTitle(title);
+        registerAfterCommit(() -> pushNotificationService.notifyStatusChange(pulseId, PulseStatus.NEW));
+        return pulse;
+    }
+
     // ---------- HELPERS ----------
 
     private static String defaultTitleFor(PulseCategory category) {

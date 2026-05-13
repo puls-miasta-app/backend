@@ -5,6 +5,6 @@ public record UpdateCommentReportRequest(
         String status,
         /** Opcjonalna notatka admina widoczna tylko w panelu. */
         String adminNote,
-        /** Jeśli true — usuwa (soft-delete) komentarz przy zatwierdzaniu zgłoszenia. */
-        boolean deleteComment
+        /** Jeśli true — usuwa (soft-delete) komentarz przy zatwierdzaniu zgłoszenia. Null traktowany jak false. */
+        Boolean deleteComment
 ) {}

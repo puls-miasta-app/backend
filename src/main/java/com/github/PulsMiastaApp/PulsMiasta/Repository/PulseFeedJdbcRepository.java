@@ -453,7 +453,6 @@ public class PulseFeedJdbcRepository {
         if (!isAdmin) {
             sql.append("   AND p.status != 'PENDING_REVIEW'");
         }
-
         if (category != null) {
             sql.append("   AND p.category = ?");
             params.add(category.name());
@@ -466,6 +465,20 @@ public class PulseFeedJdbcRepository {
         params.add(limit);
 
         return runPulseQuery(sql.toString(), params);
+    }
+
+    public void markPendingReview(Long pulseId) {
+        jdbcTemplate.update(
+                "UPDATE pulses SET status = 'PENDING_REVIEW', updated_at = NOW() WHERE id = ?",
+                pulseId);
+    }
+
+    public void applyManualReview(Long pulseId, String category, String priority,
+                                   String title, String description) {
+        jdbcTemplate.update(
+                "UPDATE pulses SET category = ?, priority = ?, title = ?, description = ?, " +
+                "status = 'NEW', updated_at = NOW() WHERE id = ?",
+                category, priority, title, description, pulseId);
     }
 
     private static void setNullableDouble(PreparedStatement ps, int index, Double value) throws SQLException {
