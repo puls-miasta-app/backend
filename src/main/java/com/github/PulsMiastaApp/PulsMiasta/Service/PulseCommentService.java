@@ -310,18 +310,123 @@ public class PulseCommentService {
                     Collections.emptyList(), pageable, idPage.getTotalElements());
         }
 
-        // Krok 2: doładowanie pełnych encji z JOIN FETCH, bez LIMIT.
-        List<CommentReport> reports = reportRepository.findByIdsWithFetch(ids);
-        // Zachowaj kolejność z idPage (createdAt DESC).
-        java.util.Map<Long, CommentReport> byId = reports.stream()
-                .collect(Collectors.toMap(CommentReport::getId, r -> r));
-        List<CommentReportResponse> content = ids.stream()
-                .map(byId::get)
-                .filter(java.util.Objects::nonNull)
-                .map(PulseCommentService::toReportResponse)
-                .toList();
+        // Krok 2: doładowanie danych przez JdbcTemplate, BEZ Hibernate.
+        //
+        // Dlaczego nie JPA: kombinacja JPQL JOIN FETCH na CommentReport + PulseComment + Pulse
+        // (lub nawet samo SELECT z `IN (?)` po pełnych encjach) na stosie Hibernate 7 /
+        // Spring Boot 4 / Connector-J 9 / MySQL 9 rzuca SQLState S1009. Niezależnie od:
+        // - czy jest LIMIT czy IN
+        // - czy fetched-joinujemy users (BINARY column) czy nie
+        // - czy zapytanie ma kolumny TEXT
+        // Z natywnym SQL + JdbcTemplate omijamy cały query-builder Hibernate i ten konkretny
+        // protokołowy bug.
+        List<CommentReportResponse> content = loadReportResponses(ids);
         return new org.springframework.data.domain.PageImpl<>(content, pageable, idPage.getTotalElements());
     }
+
+    /**
+     * Ładuje raporty + powiązane dane przez JdbcTemplate.
+     * Zachowuje kolejność wg {@code ids} (założenie: lista pochodzi z paginowanego query ORDER BY createdAt DESC).
+     * Wykonuje 2 zapytania: jedno na raporty/komentarze/pulsy, drugie na e-maile użytkowników (batch po IN).
+     */
+    private List<CommentReportResponse> loadReportResponses(List<Long> ids) {
+        String placeholders = ids.stream().map(id -> "?").collect(Collectors.joining(","));
+        String reportsSql =
+                "SELECT cr.id AS report_id, cr.admin_note, cr.original_body, cr.reason, cr.status, " +
+                "       cr.reviewed_at, cr.created_at, cr.description, cr.reviewed_by_id, cr.reporter_id, " +
+                "       c.id AS comment_id, c.body AS comment_body, c.deleted_at AS comment_deleted_at, " +
+                "       c.user_id AS comment_user_id, p.id AS pulse_id " +
+                "FROM comment_reports cr " +
+                "JOIN pulse_comments c ON c.id = cr.comment_id " +
+                "JOIN pulses p ON p.id = c.pulse_id " +
+                "WHERE cr.id IN (" + placeholders + ")";
+
+        List<ReportRow> rows = jdbcTemplate.query(
+                reportsSql,
+                ids.toArray(),
+                (rs, rowNum) -> new ReportRow(
+                        rs.getLong("report_id"),
+                        rs.getString("admin_note"),
+                        rs.getString("original_body"),
+                        rs.getString("reason"),
+                        rs.getString("status"),
+                        rs.getTimestamp("reviewed_at"),
+                        rs.getTimestamp("created_at"),
+                        rs.getString("description"),
+                        (Long) rs.getObject("reviewed_by_id"),
+                        rs.getLong("reporter_id"),
+                        rs.getLong("comment_id"),
+                        rs.getString("comment_body"),
+                        rs.getTimestamp("comment_deleted_at") != null,
+                        (Long) rs.getObject("comment_user_id"),
+                        rs.getLong("pulse_id")
+                )
+        );
+
+        // Zbierz wszystkie user IDs (reporter / comment author / reviewer) i pobierz e-maile w jednym query.
+        java.util.Set<Long> userIds = new java.util.HashSet<>();
+        for (ReportRow r : rows) {
+            userIds.add(r.reporterId());
+            if (r.commentUserId() != null) userIds.add(r.commentUserId());
+            if (r.reviewedById() != null) userIds.add(r.reviewedById());
+        }
+        java.util.Map<Long, String> emailById = userIds.isEmpty()
+                ? java.util.Map.of()
+                : jdbcTemplate.query(
+                        "SELECT id, email FROM users WHERE id IN ("
+                                + userIds.stream().map(id -> "?").collect(Collectors.joining(",")) + ")",
+                        userIds.toArray(),
+                        rs -> {
+                            java.util.Map<Long, String> m = new java.util.HashMap<>();
+                            while (rs.next()) m.put(rs.getLong("id"), rs.getString("email"));
+                            return m;
+                        });
+
+        java.util.Map<Long, CommentReportResponse> byId = new java.util.HashMap<>();
+        for (ReportRow r : rows) {
+            String commentBody = r.commentDeleted() ? DELETED_BODY : r.commentBody();
+            byId.put(r.reportId(), new CommentReportResponse(
+                    String.valueOf(r.reportId()),
+                    String.valueOf(r.commentId()),
+                    String.valueOf(r.pulseId()),
+                    commentBody,
+                    r.originalBody(),
+                    r.reporterId(),
+                    emailById.get(r.reporterId()),
+                    r.commentUserId(),
+                    r.commentUserId() != null ? emailById.get(r.commentUserId()) : null,
+                    r.reason(),
+                    r.description(),
+                    r.status(),
+                    r.adminNote(),
+                    r.reviewedById(),
+                    r.reviewedById() != null ? emailById.get(r.reviewedById()) : null,
+                    r.reviewedAt() != null ? r.reviewedAt().toLocalDateTime().toString() : null,
+                    r.createdAt() != null ? r.createdAt().toLocalDateTime().toString() : null
+            ));
+        }
+
+        // Zachowaj kolejność z idPage.
+        return ids.stream().map(byId::get).filter(java.util.Objects::nonNull).toList();
+    }
+
+    private record ReportRow(
+            Long reportId,
+            String adminNote,
+            String originalBody,
+            String reason,
+            String status,
+            java.sql.Timestamp reviewedAt,
+            java.sql.Timestamp createdAt,
+            String description,
+            Long reviewedById,
+            Long reporterId,
+            Long commentId,
+            String commentBody,
+            boolean commentDeleted,
+            Long commentUserId,
+            Long pulseId
+    ) {}
 
     /**
      * Rozpatruje zgłoszenie.
