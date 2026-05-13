@@ -9,7 +9,7 @@ import org.springframework.data.repository.query.Param;
 
 public interface ChatMessageRepository extends JpaRepository<ChatMessage, Long> {
 
-    Page<ChatMessage> findAllByThreadIdOrderByCreatedAtDesc(Long threadId, Pageable pageable);
+    Page<ChatMessage> findAllByThreadIdOrderByCreatedAtAsc(Long threadId, Pageable pageable);
 
     @Query("""
             SELECT m FROM ChatMessage m

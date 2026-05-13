@@ -23,7 +23,6 @@ public interface PulseReportRepository extends JpaRepository<PulseReport, Long> 
             SELECT r FROM PulseReport r
             JOIN FETCH r.pulse p
             JOIN FETCH r.reporter
-            LEFT JOIN FETCH r.reviewedBy
             ORDER BY r.createdAt DESC
             """,
             countQuery = """
@@ -37,7 +36,6 @@ public interface PulseReportRepository extends JpaRepository<PulseReport, Long> 
             SELECT r FROM PulseReport r
             JOIN FETCH r.pulse p
             JOIN FETCH r.reporter
-            LEFT JOIN FETCH r.reviewedBy
             WHERE r.status = :status
             ORDER BY r.createdAt DESC
             """,
@@ -58,7 +56,6 @@ public interface PulseReportRepository extends JpaRepository<PulseReport, Long> 
             SELECT r FROM PulseReport r
             JOIN FETCH r.pulse p
             JOIN FETCH r.reporter
-            LEFT JOIN FETCH r.reviewedBy
             WHERE (:scopeColumn = 'city'           AND p.city                         IN :scopeValues) OR
                   (:scopeColumn = 'gmina_id'       AND CAST(p.gminaId AS String)       IN :scopeValues) OR
                   (:scopeColumn = 'powiat_id'      AND CAST(p.powiatId AS String)      IN :scopeValues) OR
@@ -83,7 +80,6 @@ public interface PulseReportRepository extends JpaRepository<PulseReport, Long> 
             SELECT r FROM PulseReport r
             JOIN FETCH r.pulse p
             JOIN FETCH r.reporter
-            LEFT JOIN FETCH r.reviewedBy
             WHERE r.status = :status
               AND ((:scopeColumn = 'city'           AND p.city                         IN :scopeValues) OR
                    (:scopeColumn = 'gmina_id'       AND CAST(p.gminaId AS String)       IN :scopeValues) OR
@@ -110,7 +106,6 @@ public interface PulseReportRepository extends JpaRepository<PulseReport, Long> 
             SELECT r FROM PulseReport r
             JOIN FETCH r.pulse p
             JOIN FETCH r.reporter
-            LEFT JOIN FETCH r.reviewedBy
             WHERE r.id = :id
             """)
     Optional<PulseReport> findByIdWithPulse(@Param("id") Long id);

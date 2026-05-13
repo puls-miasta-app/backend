@@ -9,7 +9,6 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.HttpStatus;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -104,16 +103,12 @@ public class LoginOtpService {
         // Store OTP synchronously so verify() cannot race ahead of the async email delivery.
         redisTemplate.opsForValue().set(OTP_PREFIX + userId, code, otpTtl);
         redisTemplate.delete(ATTEMPTS_PREFIX + userId);
-        sendEmailAsync(userId, email, firstName, code);
-    }
-
-    @Async
-    protected void sendEmailAsync(Long userId, String email, String firstName, String code) {
         try {
             sendEmail(email, firstName, code);
         } catch (Exception e) {
-            // OTP remains in Redis — user can still verify or request a new code after cooldown.
             log.error("Failed to send login OTP email to userId={}: {}", userId, e.getMessage(), e);
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR,
+                    "Nie udało się wysłać e-maila z kodem. Spróbuj ponownie.");
         }
     }
 

@@ -114,7 +114,7 @@ public class ChatService {
         ChatThread thread = requireThread(threadId);
         requireAccess(thread, principal);
 
-        Page<ChatMessage> msgPage = messageRepository.findAllByThreadIdOrderByCreatedAtDesc(
+        Page<ChatMessage> msgPage = messageRepository.findAllByThreadIdOrderByCreatedAtAsc(
                 threadId, PageRequest.of(page, size));
 
         List<ChatDtos.ChatMessageResponse> messages = msgPage.getContent().stream()
@@ -134,7 +134,7 @@ public class ChatService {
     public Page<ChatDtos.ChatMessageResponse> getMessages(Long threadId, AuthPrincipal principal, int page, int size) {
         ChatThread thread = requireThread(threadId);
         requireAccess(thread, principal);
-        return messageRepository.findAllByThreadIdOrderByCreatedAtDesc(threadId, PageRequest.of(page, size))
+        return messageRepository.findAllByThreadIdOrderByCreatedAtAsc(threadId, PageRequest.of(page, size))
                 .map(this::toMessageResponse);
     }
 
