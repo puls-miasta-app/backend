@@ -62,11 +62,10 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
                                            WebSocketHandler wsHandler,
                                            Map<String, Object> attributes) {
                 if (request instanceof ServletServerHttpRequest servletRequest) {
-                    String token = servletRequest.getServletRequest().getParameter("token");
-                    log.info("WS handshake — token present: {}, uri: {}", token != null, request.getURI());
+                    var raw = servletRequest.getServletRequest();
+                    String token = raw.getParameter("token");
                     if (token != null) {
                         Long userId = wsTokenService.consumeToken(token);
-                        log.info("WS handshake — consumeToken result: userId={}", userId);
                         if (userId != null) {
                             userRepository.findByIdWithGeo(userId)
                                     .map(AuthPrincipal::from)

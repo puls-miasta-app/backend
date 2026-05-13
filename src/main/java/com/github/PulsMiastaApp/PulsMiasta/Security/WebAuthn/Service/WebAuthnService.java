@@ -279,7 +279,7 @@ public class WebAuthnService {
     private UserCredential verifyAssertionAndUpdate(byte[] challenge, String rawId, String credentialId,
                                                     PublicKeyCredential<AuthenticatorAssertionResponse> credential) {
 
-        byte[] rawCredId = Base64.getUrlDecoder().decode(rawId);
+        byte[] rawCredId = decodeBase64(rawId);
         UserCredential storedCred = credentialRepository.findByCredentialId(rawCredId)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.UNAUTHORIZED, "Nieznany klucz dostępu — dane uwierzytelniające nie są zarejestrowane na tym serwerze"));
@@ -322,7 +322,7 @@ public class WebAuthnService {
         String userHandleB64 = request.response().userHandle();
 
         if (userHandleB64 != null && !userHandleB64.isBlank()) {
-            byte[] handleBytes = Base64.getUrlDecoder().decode(userHandleB64);
+            byte[] handleBytes = decodeBase64(userHandleB64);
             User userByHandle = userRepository.findByWebauthnUserHandle(handleBytes)
                     .orElseThrow(() -> new ResponseStatusException(
                             HttpStatus.UNAUTHORIZED, "Identyfikator użytkownika nie pasuje do żadnego zarejestrowanego konta"));
@@ -610,5 +610,17 @@ public class WebAuthnService {
             if (t.contains("ble")) return "Bluetooth Security Key";
         }
         return "Security Key";
+    }
+
+    /**
+     * Decodes a base64 string that may use either standard ({@code +/}) or URL-safe ({@code -_})
+     * alphabet, with or without padding. Normalises to base64url before decoding so clients that
+     * send standard base64 (e.g. some Android WebAuthn implementations) are accepted.
+     */
+    private static byte[] decodeBase64(String value) {
+        String normalized = value.replace('+', '-').replace('/', '_');
+        int pad = normalized.indexOf('=');
+        if (pad >= 0) normalized = normalized.substring(0, pad);
+        return Base64.getUrlDecoder().decode(normalized);
     }
 }

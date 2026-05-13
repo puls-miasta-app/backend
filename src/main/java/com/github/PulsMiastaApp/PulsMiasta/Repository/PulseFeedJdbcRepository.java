@@ -192,6 +192,12 @@ public class PulseFeedJdbcRepository {
                 note, imageHint, pulseId);
     }
 
+    public void markPendingReview(Long pulseId) {
+        jdbcTemplate.update(
+                "UPDATE pulses SET status = 'PENDING_REVIEW', updated_at = NOW() WHERE id = ?",
+                pulseId);
+    }
+
     public void updateAiFields(Long pulseId, String category, String priority,
                                String title, String description,
                                String aiNote, String imageHint, String heat) {

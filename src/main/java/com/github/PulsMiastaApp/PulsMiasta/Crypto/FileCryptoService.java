@@ -4,7 +4,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import javax.crypto.Cipher;
-import javax.crypto.CipherInputStream;
 import javax.crypto.CipherOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -71,8 +70,11 @@ public class FileCryptoService {
                 encryptedDek,
                 dekIv,
                 dataIv);
-        try (CipherInputStream cis = new CipherInputStream(dis, cipher)) {
-            cis.transferTo(out);
-        }
+        // CipherInputStream + AES/GCM/NoPadding (decrypt) is broken in Java:
+        // cipher.update() buffers all input and returns nothing; doFinal() returns all
+        // plaintext but CipherInputStream.close() discards that return value → 0 bytes written.
+        // Fix: read all ciphertext+tag at once, call doFinal() directly.
+        byte[] ciphertextWithTag = dis.readAllBytes();
+        out.write(cipher.doFinal(ciphertextWithTag));
     }
 }

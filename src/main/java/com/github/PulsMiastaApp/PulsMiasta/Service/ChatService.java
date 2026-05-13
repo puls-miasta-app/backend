@@ -114,7 +114,7 @@ public class ChatService {
         ChatThread thread = requireThread(threadId);
         requireAccess(thread, principal);
 
-        Page<ChatMessage> msgPage = messageRepository.findAllByThreadIdOrderByCreatedAtAsc(
+        Page<ChatMessage> msgPage = messageRepository.findAllByThreadIdOrderByCreatedAtDesc(
                 threadId, PageRequest.of(page, size));
 
         List<ChatDtos.ChatMessageResponse> messages = msgPage.getContent().stream()
@@ -134,7 +134,7 @@ public class ChatService {
     public Page<ChatDtos.ChatMessageResponse> getMessages(Long threadId, AuthPrincipal principal, int page, int size) {
         ChatThread thread = requireThread(threadId);
         requireAccess(thread, principal);
-        return messageRepository.findAllByThreadIdOrderByCreatedAtAsc(threadId, PageRequest.of(page, size))
+        return messageRepository.findAllByThreadIdOrderByCreatedAtDesc(threadId, PageRequest.of(page, size))
                 .map(this::toMessageResponse);
     }
 
@@ -228,13 +228,17 @@ public class ChatService {
             Long citizenId = thread.getUser().getId();
             registerAfterCommit(() -> {
                 broadcastMessage(threadIdCaptured, msgResponse);
-                pushNotificationService.notifyChatAdminReply(threadIdCaptured, citizenId, senderName, plainBody);
+                if (!citizenId.equals(principal.id())) {
+                    pushNotificationService.notifyChatAdminReply(threadIdCaptured, citizenId, senderName, plainBody);
+                }
             });
         } else {
             Long assignedId = thread.getAssignedTo() != null ? thread.getAssignedTo().getId() : null;
             registerAfterCommit(() -> {
                 broadcastMessage(threadIdCaptured, msgResponse);
-                pushNotificationService.notifyChatUserMessage(threadIdCaptured, assignedId, senderName, plainBody);
+                if (assignedId != null && !assignedId.equals(principal.id())) {
+                    pushNotificationService.notifyChatUserMessage(threadIdCaptured, assignedId, senderName, plainBody);
+                }
             });
         }
 
