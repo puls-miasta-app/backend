@@ -16,51 +16,91 @@ public interface PulseReportRepository extends JpaRepository<PulseReport, Long> 
     boolean existsByPulseIdAndReporterId(Long pulseId, Long reporterId);
 
     /**
-     * Zgłoszenia bez filtrowania zakresu — dla SUPER_ADMIN.
-     * Osobna metoda eliminuje generowanie przez Hibernate pustego IN (→ 1=0 → ?='city' and 1=0),
-     * który myli klasyfikator MySQL Connector/J i powoduje SQLState S1009.
+     * Zgłoszenia bez filtrowania zakresu i statusu — dla SUPER_ADMIN.
+     * Brak parametru nullable eliminuje SQLState S1009 MySQL Connector/J.
      */
     @Query(value = """
             SELECT r FROM PulseReport r
             JOIN FETCH r.pulse p
             JOIN FETCH r.reporter
             LEFT JOIN FETCH r.reviewedBy
-            WHERE (:status IS NULL OR r.status = :status)
             ORDER BY r.createdAt DESC
             """,
             countQuery = """
             SELECT COUNT(r) FROM PulseReport r
             JOIN r.pulse p
-            WHERE (:status IS NULL OR r.status = :status)
             """)
-    Page<PulseReport> findAllReports(
-            @Param("status") PulseReportStatus status,
-            Pageable pageable);
+    Page<PulseReport> findAllReports(Pageable pageable);
 
+    /** Jak wyżej, ale z filtrem statusu. Wywoływać tylko gdy status != null. */
     @Query(value = """
             SELECT r FROM PulseReport r
             JOIN FETCH r.pulse p
             JOIN FETCH r.reporter
             LEFT JOIN FETCH r.reviewedBy
-            WHERE (:status IS NULL OR r.status = :status)
-              AND (:scopeColumn IS NULL OR
-                  (:scopeColumn = 'city'           AND p.city                         IN :scopeValues) OR
-                  (:scopeColumn = 'gmina_id'       AND CAST(p.gminaId AS String)       IN :scopeValues) OR
-                  (:scopeColumn = 'powiat_id'      AND CAST(p.powiatId AS String)      IN :scopeValues) OR
-                  (:scopeColumn = 'wojewodztwo_id' AND CAST(p.wojewodztwoId AS String) IN :scopeValues))
+            WHERE r.status = :status
             ORDER BY r.createdAt DESC
             """,
             countQuery = """
             SELECT COUNT(r) FROM PulseReport r
             JOIN r.pulse p
-            WHERE (:status IS NULL OR r.status = :status)
-              AND (:scopeColumn IS NULL OR
-                  (:scopeColumn = 'city'           AND p.city                         IN :scopeValues) OR
+            WHERE r.status = :status
+            """)
+    Page<PulseReport> findAllReportsByStatus(
+            @Param("status") PulseReportStatus status,
+            Pageable pageable);
+
+    /**
+     * Zgłoszenia w zasięgu admina bez filtra statusu.
+     * Wywoływać tylko gdy scopeValues jest niepuste.
+     */
+    @Query(value = """
+            SELECT r FROM PulseReport r
+            JOIN FETCH r.pulse p
+            JOIN FETCH r.reporter
+            LEFT JOIN FETCH r.reviewedBy
+            WHERE (:scopeColumn = 'city'           AND p.city                         IN :scopeValues) OR
                   (:scopeColumn = 'gmina_id'       AND CAST(p.gminaId AS String)       IN :scopeValues) OR
                   (:scopeColumn = 'powiat_id'      AND CAST(p.powiatId AS String)      IN :scopeValues) OR
-                  (:scopeColumn = 'wojewodztwo_id' AND CAST(p.wojewodztwoId AS String) IN :scopeValues))
+                  (:scopeColumn = 'wojewodztwo_id' AND CAST(p.wojewodztwoId AS String) IN :scopeValues)
+            ORDER BY r.createdAt DESC
+            """,
+            countQuery = """
+            SELECT COUNT(r) FROM PulseReport r
+            JOIN r.pulse p
+            WHERE (:scopeColumn = 'city'           AND p.city                         IN :scopeValues) OR
+                  (:scopeColumn = 'gmina_id'       AND CAST(p.gminaId AS String)       IN :scopeValues) OR
+                  (:scopeColumn = 'powiat_id'      AND CAST(p.powiatId AS String)      IN :scopeValues) OR
+                  (:scopeColumn = 'wojewodztwo_id' AND CAST(p.wojewodztwoId AS String) IN :scopeValues)
             """)
     Page<PulseReport> findInScope(
+            @Param("scopeColumn") String scopeColumn,
+            @Param("scopeValues") Collection<String> scopeValues,
+            Pageable pageable);
+
+    /** Jak wyżej, ale z filtrem statusu. Wywoływać tylko gdy status != null i scopeValues niepuste. */
+    @Query(value = """
+            SELECT r FROM PulseReport r
+            JOIN FETCH r.pulse p
+            JOIN FETCH r.reporter
+            LEFT JOIN FETCH r.reviewedBy
+            WHERE r.status = :status
+              AND ((:scopeColumn = 'city'           AND p.city                         IN :scopeValues) OR
+                   (:scopeColumn = 'gmina_id'       AND CAST(p.gminaId AS String)       IN :scopeValues) OR
+                   (:scopeColumn = 'powiat_id'      AND CAST(p.powiatId AS String)      IN :scopeValues) OR
+                   (:scopeColumn = 'wojewodztwo_id' AND CAST(p.wojewodztwoId AS String) IN :scopeValues))
+            ORDER BY r.createdAt DESC
+            """,
+            countQuery = """
+            SELECT COUNT(r) FROM PulseReport r
+            JOIN r.pulse p
+            WHERE r.status = :status
+              AND ((:scopeColumn = 'city'           AND p.city                         IN :scopeValues) OR
+                   (:scopeColumn = 'gmina_id'       AND CAST(p.gminaId AS String)       IN :scopeValues) OR
+                   (:scopeColumn = 'powiat_id'      AND CAST(p.powiatId AS String)      IN :scopeValues) OR
+                   (:scopeColumn = 'wojewodztwo_id' AND CAST(p.wojewodztwoId AS String) IN :scopeValues))
+            """)
+    Page<PulseReport> findInScopeByStatus(
             @Param("status") PulseReportStatus status,
             @Param("scopeColumn") String scopeColumn,
             @Param("scopeValues") Collection<String> scopeValues,

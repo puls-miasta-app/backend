@@ -82,15 +82,24 @@ public class AdminUserService {
 
         List<User> users = switch (callerRole) {
             case SUPER_ADMIN -> userRepository.findAllAdmins(ALL_ADMIN_ROLES);
-            case ADMIN_WOJEWODZTWA -> userRepository.findAdminsByWojewodztwaIds(
-                    ALL_ADMIN_ROLES,
-                    caller.getManagedWojewodztwa().stream().map(Wojewodztwo::getId).toList());
-            case ADMIN_POWIATU -> userRepository.findAdminsByPowiatyIds(
-                    ALL_ADMIN_ROLES,
-                    caller.getManagedPowiaty().stream().map(Powiat::getId).toList());
-            case ADMIN_GMINY -> userRepository.findAdminsByGminyIds(
-                    ALL_ADMIN_ROLES,
-                    caller.getManagedGminy().stream().map(Gmina::getId).toList());
+            case ADMIN_WOJEWODZTWA -> {
+                List<Long> wojIds = caller.getManagedWojewodztwa().stream().map(Wojewodztwo::getId).toList();
+                yield merge(
+                        userRepository.findAdminsByWojewodztwaIds(ALL_ADMIN_ROLES, wojIds),
+                        userRepository.findCityAdminsByWojewodztwaIds(ALL_ADMIN_ROLES, wojIds));
+            }
+            case ADMIN_POWIATU -> {
+                List<Long> powIds = caller.getManagedPowiaty().stream().map(Powiat::getId).toList();
+                yield merge(
+                        userRepository.findAdminsByPowiatyIds(ALL_ADMIN_ROLES, powIds),
+                        userRepository.findCityAdminsByPowiatyIds(ALL_ADMIN_ROLES, powIds));
+            }
+            case ADMIN_GMINY -> {
+                List<Long> gmIds = caller.getManagedGminy().stream().map(Gmina::getId).toList();
+                yield merge(
+                        userRepository.findAdminsByGminyIds(ALL_ADMIN_ROLES, gmIds),
+                        userRepository.findCityAdminsByGminyIds(ALL_ADMIN_ROLES, gmIds));
+            }
             default -> throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Brak uprawnień");
         };
         // Batch-load geo collections in ONE query to avoid N+1 (1 query per managed area per user)
@@ -232,12 +241,7 @@ public class AdminUserService {
         user.getManagedMiasta().clear();
 
         switch (targetRole) {
-            case ADMIN_MIASTA -> {
-                user.getManagedWojewodztwa().addAll(inheritWojew(creatorRole, creator, geo));
-                user.getManagedPowiaty().addAll(inheritPow(creatorRole, creator, geo));
-                user.getManagedGminy().addAll(inheritGm(creatorRole, creator, geo));
-                user.getManagedMiasta().addAll(geo.miej());
-            }
+            case ADMIN_MIASTA -> user.getManagedMiasta().addAll(geo.miej());
             case ADMIN_GMINY -> {
                 user.getManagedWojewodztwa().addAll(inheritWojew(creatorRole, creator, geo));
                 user.getManagedPowiaty().addAll(inheritPow(creatorRole, creator, geo));
@@ -395,6 +399,13 @@ public class AdminUserService {
         } catch (IllegalArgumentException e) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Nieznana rola: " + roleName);
         }
+    }
+
+    private static List<User> merge(List<User> a, List<User> b) {
+        LinkedHashMap<Long, User> map = new LinkedHashMap<>();
+        a.forEach(u -> map.put(u.getId(), u));
+        b.forEach(u -> map.putIfAbsent(u.getId(), u));
+        return new ArrayList<>(map.values());
     }
 
     private static void requireIds(List<Long> ids, String fieldName) {

@@ -106,7 +106,7 @@ public class AdminCommentController {
                 principal.id(),
                 body == null ? null : body.status(),
                 body == null ? null : body.adminNote(),
-                body != null && body.deleteComment(),
+                body != null && Boolean.TRUE.equals(body.deleteComment()),
                 principal.adminScopeColumn(),
                 principal.adminScopeValues()
         );
