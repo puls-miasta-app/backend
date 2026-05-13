@@ -6,8 +6,6 @@ import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
-import org.hibernate.annotations.BatchSize;
-
 import java.time.LocalDateTime;
 
 @Entity
@@ -46,7 +44,6 @@ public class PulseReport {
     @Column(name = "status", nullable = false, length = 20)
     private PulseReportStatus status = PulseReportStatus.PENDING;
 
-    @BatchSize(size = 50)
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "reviewed_by_id")
     private User reviewedBy;
