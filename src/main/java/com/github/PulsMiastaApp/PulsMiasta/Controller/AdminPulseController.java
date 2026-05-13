@@ -16,6 +16,8 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotNull;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -115,6 +117,20 @@ public class AdminPulseController {
         return ResponseEntity.ok(SuccessResponse.of(PulseMapper.toResponse(pulse)));
     }
 
+    @PatchMapping("/{id}/review")
+    public ResponseEntity<SuccessResponse<PulseResponse>> reviewPulse(
+            @PathVariable("id") Long id,
+            @Valid @RequestBody ReviewPulseRequest body,
+            @AuthenticationPrincipal AuthPrincipal principal
+    ) {
+        requireAdmin(principal);
+        Pulse existing = pulseService.getAny(id);
+        requirePulseInScope(existing, principal);
+        Pulse pulse = pulseService.reviewPulse(id, body.category(), body.priority(),
+                body.title(), body.description());
+        return ResponseEntity.ok(SuccessResponse.of(PulseMapper.toResponse(pulse)));
+    }
+
     private static void requireAdmin(AuthPrincipal principal) {
         if (principal == null || !principal.isAdmin()) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Wymagany dostęp administratora");
@@ -154,5 +170,12 @@ public class AdminPulseController {
             int size,
             long totalElements,
             int totalPages
+    ) {}
+
+    public record ReviewPulseRequest(
+            @NotNull PulseCategory category,
+            @NotNull PulsePriority priority,
+            String title,
+            String description
     ) {}
 }

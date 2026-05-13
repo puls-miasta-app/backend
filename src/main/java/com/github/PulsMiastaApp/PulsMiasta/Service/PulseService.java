@@ -472,9 +472,10 @@ public class PulseService {
 
     @Transactional(readOnly = true)
     public List<Pulse> listMapPulses(double swLat, double swLng, double neLat, double neLng,
-                                     PulseCategory category, PulseStatus status, int limit) {
+                                     PulseCategory category, PulseStatus status, int limit,
+                                     boolean isAdmin) {
         return pulseFeedJdbcRepository.findInBounds(swLat, swLng, neLat, neLng,
-                category, status, limit);
+                category, status, limit, isAdmin);
     }
 
     // ---------- STATUS UPDATE (admin) ----------
@@ -487,6 +488,27 @@ public class PulseService {
         pulseFeedJdbcRepository.updateStatusById(pulseId, newStatus.name());
         pulse.setStatus(newStatus);
         registerAfterCommit(() -> pushNotificationService.notifyStatusChange(pulseId, newStatus));
+        return pulse;
+    }
+
+    @Transactional
+    public Pulse reviewPulse(Long pulseId, PulseCategory category, PulsePriority priority,
+                              String title, String description) {
+        Pulse pulse = pulseFeedJdbcRepository.findByIdWithPhotos(pulseId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Zgłoszenie nie znalezione"));
+        if (pulse.getStatus() != PulseStatus.PENDING_REVIEW) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Zgłoszenie nie oczekuje na weryfikację (status: " + pulse.getStatus() + ")");
+        }
+        pulseFeedJdbcRepository.applyManualReview(pulseId,
+                category.name(), priority.name(),
+                title != null ? title : defaultTitleFor(category),
+                description != null ? description : pulse.getDescription());
+        pulse.setCategory(category);
+        pulse.setPriority(priority);
+        pulse.setStatus(PulseStatus.NEW);
+        if (title != null) pulse.setTitle(title);
+        registerAfterCommit(() -> pushNotificationService.notifyStatusChange(pulseId, PulseStatus.NEW));
         return pulse;
     }
 
