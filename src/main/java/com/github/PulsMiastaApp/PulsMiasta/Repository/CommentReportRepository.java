@@ -94,16 +94,22 @@ public interface CommentReportRepository extends JpaRepository<CommentReport, Lo
             Pageable pageable);
 
     /**
-     * Ładuje pełne encje raportów po ID, z eager joinami. Brak LIMIT eliminuje bug
-     * Connector-J/Hibernate opisany wyżej. Wynik nieuporządkowany — sortowanie po
-     * createdAt DESC odbywa się w serwisie wg kolejności listy ID.
+     * Ładuje encje raportów po ID z fetchem komentarza i pulsu, ale BEZ users.
+     *
+     * Dlaczego users nie są fetched: User ma kolumnę BINARY(16) `webauthn_user_handle`.
+     * Wciągnięcie jej do masowego JOIN FETCH na stosie Hibernate 7 / Connector-J 9 / MySQL 9
+     * powoduje desynchronizację protokołu i SQLState S1009 ("Statement.executeQuery()
+     * cannot issue statements that do not produce result sets"). Trigger nie jest LIMIT,
+     * tylko kolumna BINARY w wynikowym secie z 4 joinami.
+     *
+     * Reporter / commentAuthor / reviewer są wczytywane lazy z poziomu toReportResponse —
+     * pojedyncze SELECT-y po PK są małe i nie hitują buga. Dla admin paginacji 20–50 rekordów
+     * narzut N+1 jest akceptowalny.
      */
     @Query("""
             SELECT r FROM CommentReport r
             JOIN FETCH r.comment c
-            JOIN FETCH c.pulse p
-            JOIN FETCH r.reporter
-            LEFT JOIN FETCH c.user
+            JOIN FETCH c.pulse
             WHERE r.id IN :ids
             """)
     List<CommentReport> findByIdsWithFetch(@Param("ids") Collection<Long> ids);
