@@ -467,12 +467,6 @@ public class PulseFeedJdbcRepository {
         return runPulseQuery(sql.toString(), params);
     }
 
-    public void markPendingReview(Long pulseId) {
-        jdbcTemplate.update(
-                "UPDATE pulses SET status = 'PENDING_REVIEW', updated_at = NOW() WHERE id = ?",
-                pulseId);
-    }
-
     public void applyManualReview(Long pulseId, String category, String priority,
                                    String title, String description) {
         jdbcTemplate.update(
