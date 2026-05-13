@@ -119,12 +119,15 @@ public interface CommentReportRepository extends JpaRepository<CommentReport, Lo
      * Używane w reviewReport — umożliwia sprawdzenie scope na załadowanej encji
      * bez osobnego query (eliminuje TOCTOU existsByIdInScope + findById).
      */
+    /**
+     * Reporter / comment author ładują się lazy (zob. javadoc findByIdsWithFetch wyżej —
+     * ten sam bug Connector-J/MySQL na users.webauthn_user_handle BINARY w JOIN FETCH).
+     * Wywołujące metody są w @Transactional, więc lazy init działa.
+     */
     @Query("""
             SELECT r FROM CommentReport r
             JOIN FETCH r.comment c
             JOIN FETCH c.pulse
-            JOIN FETCH r.reporter
-            LEFT JOIN FETCH c.user
             WHERE r.id = :id
             """)
     Optional<CommentReport> findByIdWithCommentAndPulse(@Param("id") Long id);
