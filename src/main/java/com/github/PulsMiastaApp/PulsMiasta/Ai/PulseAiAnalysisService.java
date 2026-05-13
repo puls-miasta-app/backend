@@ -70,13 +70,14 @@ public class PulseAiAnalysisService {
 
             double threshold = geminiProperties.getMinConfidence();
             if (result.confidence() < threshold) {
-                log.info("Pulse {}: AI confidence {} below threshold {}, saving imageHint only",
+                log.info("Pulse {}: AI confidence {} below threshold {}, marking PENDING_REVIEW",
                         pulseId, result.confidence(), threshold);
                 String imageHint = result.imageHint() != null && !result.imageHint().isBlank()
                         ? result.imageHint() : null;
                 pulseFeedJdbcRepository.updateAiNoteAndImageHint(pulseId,
                         "Automatyczna analiza zdjęcia nie była możliwa. Zgłoszenie wymaga ręcznej weryfikacji.",
                         imageHint);
+                pulseFeedJdbcRepository.markPendingReview(pulseId);
                 return;
             }
 

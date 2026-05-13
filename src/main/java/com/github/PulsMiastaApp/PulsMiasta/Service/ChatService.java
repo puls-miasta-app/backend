@@ -228,13 +228,17 @@ public class ChatService {
             Long citizenId = thread.getUser().getId();
             registerAfterCommit(() -> {
                 broadcastMessage(threadIdCaptured, msgResponse);
-                pushNotificationService.notifyChatAdminReply(threadIdCaptured, citizenId, senderName, plainBody);
+                if (!citizenId.equals(principal.id())) {
+                    pushNotificationService.notifyChatAdminReply(threadIdCaptured, citizenId, senderName, plainBody);
+                }
             });
         } else {
             Long assignedId = thread.getAssignedTo() != null ? thread.getAssignedTo().getId() : null;
             registerAfterCommit(() -> {
                 broadcastMessage(threadIdCaptured, msgResponse);
-                pushNotificationService.notifyChatUserMessage(threadIdCaptured, assignedId, senderName, plainBody);
+                if (assignedId != null && !assignedId.equals(principal.id())) {
+                    pushNotificationService.notifyChatUserMessage(threadIdCaptured, assignedId, senderName, plainBody);
+                }
             });
         }
 

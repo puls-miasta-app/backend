@@ -71,6 +71,8 @@ public class PulseFeedJdbcRepository {
             where.append(" AND (p.category NOT IN (").append(adminOnlyList).append(")");
             where.append(" OR p.user_id = ?)");
             params.add(userId);
+            where.append(" AND (p.status != 'PENDING_REVIEW' OR p.user_id = ?)");
+            params.add(userId);
         }
 
         if (city != null) {
@@ -188,6 +190,12 @@ public class PulseFeedJdbcRepository {
         jdbcTemplate.update(
                 "UPDATE pulses SET ai_note = ?, image_hint = ?, updated_at = NOW() WHERE id = ?",
                 note, imageHint, pulseId);
+    }
+
+    public void markPendingReview(Long pulseId) {
+        jdbcTemplate.update(
+                "UPDATE pulses SET status = 'PENDING_REVIEW', updated_at = NOW() WHERE id = ?",
+                pulseId);
     }
 
     public void updateAiFields(Long pulseId, String category, String priority,
@@ -425,7 +433,8 @@ public class PulseFeedJdbcRepository {
     }
 
     public List<Pulse> findInBounds(double swLat, double swLng, double neLat, double neLng,
-                                     PulseCategory category, PulseStatus status, int limit) {
+                                     PulseCategory category, PulseStatus status, int limit,
+                                     boolean isAdmin) {
         StringBuilder sql = new StringBuilder(BASE_PULSE_SELECT);
         sql.append(" WHERE p.merged_into_pulse_id IS NULL");
         sql.append("   AND p.latitude IS NOT NULL AND p.longitude IS NOT NULL");
@@ -440,6 +449,10 @@ public class PulseFeedJdbcRepository {
         params.add(neLat);
         params.add(swLng);
         params.add(neLng);
+
+        if (!isAdmin) {
+            sql.append("   AND p.status != 'PENDING_REVIEW'");
+        }
 
         if (category != null) {
             sql.append("   AND p.category = ?");

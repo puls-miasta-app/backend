@@ -5,6 +5,7 @@ import java.util.Locale;
 /** Cykl życia zgłoszenia obsługiwany po stronie backend/admin. */
 public enum PulseStatus {
     NEW("Nowe"),
+    PENDING_REVIEW("Oczekuje na weryfikację"),
     CONFIRMED("Potwierdzone"),
     IN_PROGRESS("W realizacji"),
     RESOLVED("Rozwiązane"),
