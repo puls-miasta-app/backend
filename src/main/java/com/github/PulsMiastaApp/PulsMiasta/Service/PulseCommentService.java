@@ -289,21 +289,38 @@ public class PulseCommentService {
             String rawStatus, String scopeColumn, Set<String> scopeValues, int page, int size) {
         CommentReportStatus status = parseStatus(rawStatus);
         PageRequest pageable = PageRequest.of(page, size);
-        // scopeColumn == null → super admin, nie generujemy IN (puste scopeValues → 1=0 → bug S1009)
+
+        // Krok 1: paginowane ID (bez JOIN FETCH) — zob. javadoc CommentReportRepository.
+        Page<Long> idPage;
         if (scopeColumn == null) {
-            Page<CommentReport> result = status == null
-                    ? reportRepository.findAllReports(pageable)
-                    : reportRepository.findAllReportsByStatus(status, pageable);
-            return result.map(PulseCommentService::toReportResponse);
-        }
-        // scoped admin bez przypisanych obszarów → pusty wynik bez query
-        if (scopeValues.isEmpty()) {
+            idPage = status == null
+                    ? reportRepository.findAllReportIds(pageable)
+                    : reportRepository.findReportIdsByStatus(status, pageable);
+        } else if (scopeValues.isEmpty()) {
             return Page.empty(pageable);
+        } else {
+            idPage = status == null
+                    ? reportRepository.findReportIdsInScope(scopeColumn, scopeValues, pageable)
+                    : reportRepository.findReportIdsInScopeByStatus(status, scopeColumn, scopeValues, pageable);
         }
-        Page<CommentReport> result = status == null
-                ? reportRepository.findInScope(scopeColumn, scopeValues, pageable)
-                : reportRepository.findInScopeByStatus(status, scopeColumn, scopeValues, pageable);
-        return result.map(PulseCommentService::toReportResponse);
+
+        List<Long> ids = idPage.getContent();
+        if (ids.isEmpty()) {
+            return new org.springframework.data.domain.PageImpl<>(
+                    Collections.emptyList(), pageable, idPage.getTotalElements());
+        }
+
+        // Krok 2: doładowanie pełnych encji z JOIN FETCH, bez LIMIT.
+        List<CommentReport> reports = reportRepository.findByIdsWithFetch(ids);
+        // Zachowaj kolejność z idPage (createdAt DESC).
+        java.util.Map<Long, CommentReport> byId = reports.stream()
+                .collect(Collectors.toMap(CommentReport::getId, r -> r));
+        List<CommentReportResponse> content = ids.stream()
+                .map(byId::get)
+                .filter(java.util.Objects::nonNull)
+                .map(PulseCommentService::toReportResponse)
+                .toList();
+        return new org.springframework.data.domain.PageImpl<>(content, pageable, idPage.getTotalElements());
     }
 
     /**
