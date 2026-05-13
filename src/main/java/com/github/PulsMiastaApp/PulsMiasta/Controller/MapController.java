@@ -88,8 +88,9 @@ public class MapController {
 
         int effectiveLimit = sanitizeLimit(limit);
         boolean isAdmin = principal != null && principal.isAdmin();
+        Long userId = principal != null ? principal.id() : null;
         List<Pulse> pulses = pulseService.listMapPulses(
-                swLat, swLng, neLat, neLng, cat, st, effectiveLimit, isAdmin);
+                swLat, swLng, neLat, neLng, cat, st, effectiveLimit, isAdmin, userId);
 
         List<MapPulseResponse.Feature> features = pulses.stream()
                 .filter(p -> p.getLatitude() != null && p.getLongitude() != null)

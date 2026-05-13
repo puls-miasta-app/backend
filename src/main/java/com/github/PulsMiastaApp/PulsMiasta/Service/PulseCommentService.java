@@ -459,17 +459,20 @@ public class PulseCommentService {
     }
 
     private static CommentReportResponse toReportResponse(CommentReport r) {
-        PulseComment c = r.getComment();
-        User reporter  = r.getReporter();
-        User reviewer  = r.getReviewedBy();
+        PulseComment c      = r.getComment();
+        User reporter       = r.getReporter();
+        User reviewer       = r.getReviewedBy();
+        User commentAuthor  = c.getUser();
         return new CommentReportResponse(
                 String.valueOf(r.getId()),
                 String.valueOf(c.getId()),
                 String.valueOf(c.getPulse().getId()),
                 c.getBody(),
-                r.getOriginalBody(),           // snapshot z momentu zgłoszenia
-                reporter != null ? reporter.getId()    : null,
-                reporter != null ? reporter.getEmail() : null,
+                r.getOriginalBody(),
+                reporter      != null ? reporter.getId()      : null,
+                reporter      != null ? reporter.getEmail()   : null,
+                commentAuthor != null ? commentAuthor.getId()    : null,
+                commentAuthor != null ? commentAuthor.getEmail() : null,
                 r.getReason().name(),
                 r.getDescription(),
                 r.getStatus().name(),

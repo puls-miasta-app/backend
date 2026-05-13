@@ -25,6 +25,7 @@ public interface CommentReportRepository extends JpaRepository<CommentReport, Lo
             JOIN FETCH r.comment c
             JOIN FETCH c.pulse p
             JOIN FETCH r.reporter
+            LEFT JOIN FETCH c.user
             ORDER BY r.createdAt DESC
 """,
             countQuery = """
@@ -40,6 +41,7 @@ public interface CommentReportRepository extends JpaRepository<CommentReport, Lo
             JOIN FETCH r.comment c
             JOIN FETCH c.pulse p
             JOIN FETCH r.reporter
+            LEFT JOIN FETCH c.user
             WHERE r.status = :status
             ORDER BY r.createdAt DESC
             """,
@@ -63,6 +65,7 @@ public interface CommentReportRepository extends JpaRepository<CommentReport, Lo
             JOIN FETCH r.comment c
             JOIN FETCH c.pulse p
             JOIN FETCH r.reporter
+            LEFT JOIN FETCH c.user
             WHERE (:scopeColumn = 'city'           AND p.city                         IN :scopeValues) OR
                   (:scopeColumn = 'gmina_id'       AND CAST(p.gminaId AS String)       IN :scopeValues) OR
                   (:scopeColumn = 'powiat_id'      AND CAST(p.powiatId AS String)      IN :scopeValues) OR
@@ -89,6 +92,7 @@ public interface CommentReportRepository extends JpaRepository<CommentReport, Lo
             JOIN FETCH r.comment c
             JOIN FETCH c.pulse p
             JOIN FETCH r.reporter
+            LEFT JOIN FETCH c.user
             WHERE r.status = :status
               AND ((:scopeColumn = 'city'           AND p.city                         IN :scopeValues) OR
                    (:scopeColumn = 'gmina_id'       AND CAST(p.gminaId AS String)       IN :scopeValues) OR
@@ -122,6 +126,7 @@ public interface CommentReportRepository extends JpaRepository<CommentReport, Lo
             JOIN FETCH r.comment c
             JOIN FETCH c.pulse
             JOIN FETCH r.reporter
+            LEFT JOIN FETCH c.user
             WHERE r.id = :id
             """)
     Optional<CommentReport> findByIdWithCommentAndPulse(@Param("id") Long id);

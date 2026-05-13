@@ -56,7 +56,7 @@ public class EmailVerificationService {
         redisTemplate.opsForValue().set(EMAIL_VERIFY_PREFIX + token, user.getId(), tokenTtl);
 
         try {
-            String verifyUrl = appBaseUrl + "/api/v1/auth/verify-email?token=" + token;
+            String verifyUrl = appBaseUrl + "/verify-email?token=" + token;
             sendHtmlEmail(user.getEmail(), user.getFirstName(), verifyUrl);
         } catch (Exception e) {
             log.error("Failed to send verification email to {}: {}", user.getEmail(), e.getMessage());

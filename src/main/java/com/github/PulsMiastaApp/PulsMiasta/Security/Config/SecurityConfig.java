@@ -1,6 +1,7 @@
 package com.github.PulsMiastaApp.PulsMiasta.Security.Config;
 
 import com.github.PulsMiastaApp.PulsMiasta.Security.Filter.AuthTokenFilter;
+import jakarta.servlet.DispatcherType;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -45,6 +46,11 @@ public class SecurityConfig {
                 .formLogin(AbstractHttpConfigurer::disable)
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
+                        // ASYNC and ERROR dispatches may arrive after the response is committed —
+                        // re-running AuthorizationFilter on them causes "response already committed"
+                        // errors with Spring Security 6+. Permit them unconditionally; the original
+                        // REQUEST dispatch already went through full authorization.
+                        .dispatcherTypeMatchers(DispatcherType.ASYNC, DispatcherType.ERROR).permitAll()
                         .requestMatchers(
                                 "/swagger-ui/index.html",
                                 "/swagger-ui.html",
@@ -72,8 +78,6 @@ public class SecurityConfig {
                         .requestMatchers("/v1/map/**").permitAll()
                         .requestMatchers("/v1/geo/**").permitAll()
                         .requestMatchers("/v1/test/**").permitAll()
-                        // Spring async error dispatch — response may already be committed
-                        .requestMatchers("/error").permitAll()
                         // WebSocket handshake — auth odbywa się przez HandshakeInterceptor (ciasteczko)
                         .requestMatchers("/ws/**").permitAll()
                         // Urzędnik/admin endpoints — dostęp dla wszystkich ról adminów

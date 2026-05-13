@@ -71,7 +71,7 @@ public class PulseFeedJdbcRepository {
             where.append(" AND (p.category NOT IN (").append(adminOnlyList).append(")");
             where.append(" OR p.user_id = ?)");
             params.add(userId);
-            where.append(" AND (p.status != 'PENDING_REVIEW' OR p.user_id = ?)");
+            where.append(" AND (p.status NOT IN ('PENDING_REVIEW', 'REJECTED') OR p.user_id = ?)");
             params.add(userId);
         }
 
@@ -435,7 +435,7 @@ public class PulseFeedJdbcRepository {
 
     public List<Pulse> findInBounds(double swLat, double swLng, double neLat, double neLng,
                                      PulseCategory category, PulseStatus status, int limit,
-                                     boolean isAdmin) {
+                                     boolean isAdmin, Long userId) {
         StringBuilder sql = new StringBuilder(BASE_PULSE_SELECT);
         sql.append(" WHERE p.merged_into_pulse_id IS NULL");
         sql.append("   AND p.latitude IS NOT NULL AND p.longitude IS NOT NULL");
@@ -452,7 +452,8 @@ public class PulseFeedJdbcRepository {
         params.add(neLng);
 
         if (!isAdmin) {
-            sql.append("   AND p.status != 'PENDING_REVIEW'");
+            sql.append("   AND (p.status NOT IN ('PENDING_REVIEW', 'REJECTED') OR p.user_id = ?)");
+            params.add(userId);
         }
         if (category != null) {
             sql.append("   AND p.category = ?");

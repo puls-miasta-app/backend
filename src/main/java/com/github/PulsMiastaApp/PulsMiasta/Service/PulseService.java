@@ -488,9 +488,9 @@ public class PulseService {
     @Transactional(readOnly = true)
     public List<Pulse> listMapPulses(double swLat, double swLng, double neLat, double neLng,
                                      PulseCategory category, PulseStatus status, int limit,
-                                     boolean isAdmin) {
+                                     boolean isAdmin, Long userId) {
         return pulseFeedJdbcRepository.findInBounds(swLat, swLng, neLat, neLng,
-                category, status, limit, isAdmin);
+                category, status, limit, isAdmin, userId);
     }
 
     // ---------- STATUS UPDATE (admin) ----------

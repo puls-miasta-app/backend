@@ -10,6 +10,8 @@ public record CommentReportResponse(
         String originalBody,
         Long reporterId,
         String reporterEmail,
+        Long commentAuthorId,
+        String commentAuthorEmail,
         String reason,
         String description,
         String status,

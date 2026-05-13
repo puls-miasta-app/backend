@@ -44,7 +44,7 @@ public class CommentReport {
      * Snapshot treści komentarza w momencie zgłoszenia.
      * Przechowywany osobno, żeby admin widział oryginalną treść nawet po soft-delete.
      */
-    @Column(name = "original_body", nullable = false, columnDefinition = "TEXT")
+    @Column(name = "original_body", columnDefinition = "TEXT")
     private String originalBody;
 
     @Enumerated(EnumType.STRING)
