@@ -26,6 +26,7 @@ public record PulseResponse(
         Double lat,
         Double lng,
         String createdByEmail,
+        Long createdById,
         String userVote,
         List<PhotoInfo> photos,
         String mergedIntoId

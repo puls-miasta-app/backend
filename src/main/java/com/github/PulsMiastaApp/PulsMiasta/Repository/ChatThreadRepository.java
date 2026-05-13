@@ -16,6 +16,8 @@ public interface ChatThreadRepository extends JpaRepository<ChatThread, Long> {
 
     Page<ChatThread> findAllByPulseIdOrderByUpdatedAtDesc(Long pulseId, Pageable pageable);
 
+    java.util.List<ChatThread> findAllByPulseIdOrderByUpdatedAtDesc(Long pulseId);
+
     Optional<ChatThread> findByPulseIdAndUserId(Long pulseId, Long userId);
 
     boolean existsByPulseIdAndUserId(Long pulseId, Long userId);

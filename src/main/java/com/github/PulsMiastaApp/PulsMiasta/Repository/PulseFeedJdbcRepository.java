@@ -294,6 +294,7 @@ public class PulseFeedJdbcRepository {
     public Page<Pulse> findForAdmin(PulseStatus status, PulseCategory category,
                                     PulsePriority priority,
                                     String scopeColumn, java.util.Set<String> scopeValues,
+                                    String sortClause,
                                     Pageable pageable) {
         StringBuilder where = new StringBuilder(" WHERE p.merged_into_pulse_id IS NULL");
         List<Object> params = new ArrayList<>();
@@ -331,7 +332,7 @@ public class PulseFeedJdbcRepository {
         });
 
         String dataSql = BASE_PULSE_SELECT + where
-                + " ORDER BY p.created_at DESC LIMIT ? OFFSET ?";
+                + " ORDER BY " + sortClause + " LIMIT ? OFFSET ?";
         List<Object> dataParams = new ArrayList<>(params);
         dataParams.add(pageable.getPageSize());
         dataParams.add(pageable.getOffset());

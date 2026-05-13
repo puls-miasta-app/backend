@@ -1,5 +1,6 @@
 package com.github.PulsMiastaApp.PulsMiasta.Controller;
 
+import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.ChatDtos;
 import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.ErrorResponse;
 import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.PulseResponse;
 import com.github.PulsMiastaApp.PulsMiasta.Controller.DTO.SuccessResponse;
@@ -8,6 +9,7 @@ import com.github.PulsMiastaApp.PulsMiasta.Model.Enums.PulseCategory;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Enums.PulsePriority;
 import com.github.PulsMiastaApp.PulsMiasta.Model.Enums.PulseStatus;
 import com.github.PulsMiastaApp.PulsMiasta.Security.Model.AuthPrincipal;
+import com.github.PulsMiastaApp.PulsMiasta.Service.ChatService;
 import com.github.PulsMiastaApp.PulsMiasta.Service.PulseService;
 import com.github.PulsMiastaApp.PulsMiasta.Storage.PhotoStorageService;
 import lombok.RequiredArgsConstructor;
@@ -34,6 +36,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
+
 /**
  * Endpointy tylko dla użytkowników z rolą ADMIN (gate w {@code SecurityConfig}:
  * {@code /v1/admin/**}). Obsługuje paginowany listing + zmianę statusu.
@@ -44,6 +47,7 @@ import java.util.Set;
 public class AdminPulseController {
 
     private final PulseService pulseService;
+    private final ChatService chatService;
     private final PhotoStorageService photoStorageService;
 
     @GetMapping
@@ -51,6 +55,7 @@ public class AdminPulseController {
             @RequestParam(value = "status", required = false) String status,
             @RequestParam(value = "category", required = false) String category,
             @RequestParam(value = "priority", required = false) String priority,
+            @RequestParam(value = "sort", required = false) String sort,
             @RequestParam(value = "page", defaultValue = "0") int page,
             @RequestParam(value = "size", defaultValue = "20") int size,
             @AuthenticationPrincipal AuthPrincipal principal
@@ -60,7 +65,7 @@ public class AdminPulseController {
                 parseEnum(status, PulseStatus.class, "status"),
                 parseEnum(category, PulseCategory.class, "category"),
                 parseEnum(priority, PulsePriority.class, "priority"),
-                page, size,
+                page, size, sort,
                 principal.adminScopeColumn(), principal.adminScopeValues());
 
         List<PulseResponse> items = pulses.getContent().stream()
@@ -129,6 +134,18 @@ public class AdminPulseController {
         Pulse pulse = pulseService.reviewPulse(id, body.category(), body.priority(),
                 body.title(), body.description());
         return ResponseEntity.ok(SuccessResponse.of(PulseMapper.toResponse(pulse)));
+    }
+
+    @GetMapping("/{id}/chat/threads")
+    public ResponseEntity<SuccessResponse<List<ChatDtos.ChatThreadResponse>>> getPulseThreads(
+            @PathVariable("id") Long id,
+            @AuthenticationPrincipal AuthPrincipal principal
+    ) {
+        requireAdmin(principal);
+        Pulse pulse = pulseService.getAny(id);
+        requirePulseInScope(pulse, principal);
+        List<ChatDtos.ChatThreadResponse> threads = chatService.listByPulse(id);
+        return ResponseEntity.ok(SuccessResponse.of(threads));
     }
 
     private static void requireAdmin(AuthPrincipal principal) {

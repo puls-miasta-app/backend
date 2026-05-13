@@ -300,11 +300,26 @@ public class PulseService {
 
     @Transactional(readOnly = true)
     public Page<Pulse> listForAdmin(PulseStatus status, PulseCategory category, PulsePriority priority,
-                                    int page, int size,
+                                    int page, int size, String sort,
                                     String scopeColumn, java.util.Set<String> scopeValues) {
-        var pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
+        var pageable = PageRequest.of(page, size);
+        String sortClause = parseSortClause(sort);
         return pulseFeedJdbcRepository.findForAdmin(status, category, priority,
-                scopeColumn, scopeValues, pageable);
+                scopeColumn, scopeValues, sortClause, pageable);
+    }
+
+    private static String parseSortClause(String sort) {
+        if (sort == null || sort.isBlank()) return "p.created_at DESC";
+        return switch (sort.trim().toLowerCase(java.util.Locale.ROOT)) {
+            case "createdat,desc" -> "p.created_at DESC";
+            case "createdat,asc"  -> "p.created_at ASC";
+            case "score,desc"     -> "(p.upvotes - p.downvotes) DESC, p.created_at DESC";
+            case "score,asc"      -> "(p.upvotes - p.downvotes) ASC, p.created_at DESC";
+            case "priority,desc"  -> "FIELD(p.priority, 'PILNE', 'STANDARD', 'NISKIE'), p.created_at DESC";
+            case "priority,asc"   -> "FIELD(p.priority, 'NISKIE', 'STANDARD', 'PILNE'), p.created_at DESC";
+            case "status,asc"     -> "FIELD(p.status, 'NEW', 'PENDING_REVIEW', 'CONFIRMED', 'IN_PROGRESS', 'RESOLVED', 'REJECTED'), p.created_at DESC";
+            default               -> "p.created_at DESC";
+        };
     }
 
     // ---------- VOTES ----------

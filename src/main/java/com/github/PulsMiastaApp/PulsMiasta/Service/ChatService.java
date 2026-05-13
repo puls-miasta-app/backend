@@ -194,6 +194,16 @@ public class ChatService {
         return threads.map(t -> toThreadResponse(t, pulseInfoMap.get(t.getPulseId())));
     }
 
+    // ─── Lista wątków dla zgłoszenia (admin) ─────────────────────────────────
+
+    @Transactional(readOnly = true)
+    public List<ChatDtos.ChatThreadResponse> listByPulse(Long pulseId) {
+        List<ChatThread> threads = threadRepository.findAllByPulseIdOrderByUpdatedAtDesc(pulseId);
+        if (threads.isEmpty()) return List.of();
+        PulseInfo pulseInfo = queryPulseInfo(pulseId);
+        return threads.stream().map(t -> toThreadResponse(t, pulseInfo)).collect(Collectors.toList());
+    }
+
     // ─── Wysyłanie wiadomości ─────────────────────────────────────────────────
 
     @Transactional
