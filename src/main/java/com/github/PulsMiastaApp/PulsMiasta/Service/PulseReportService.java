@@ -13,15 +13,24 @@ import com.github.PulsMiastaApp.PulsMiasta.Repository.PulseRepository;
 import com.github.PulsMiastaApp.PulsMiasta.Repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDateTime;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -34,6 +43,7 @@ public class PulseReportService {
     private final PulseRepository pulseRepository;
     private final PulseFeedJdbcRepository pulseFeedJdbcRepository;
     private final UserRepository userRepository;
+    private final JdbcTemplate jdbcTemplate;
 
     // ─── Użytkownik zgłasza puls ───────────────────────────────────────────────
 
@@ -78,22 +88,121 @@ public class PulseReportService {
             String rawStatus, String scopeColumn, Set<String> scopeValues, int page, int size) {
         PulseReportStatus status = parseStatus(rawStatus);
         PageRequest pageable = PageRequest.of(page, size);
-        // scopeColumn == null → super admin, nie generujemy IN (puste scopeValues → 1=0 → bug S1009)
+
+        // Krok 1: paginowane ID przez JPA (zob. javadoc PulseReportRepository).
+        Page<Long> idPage;
         if (scopeColumn == null) {
-            Page<PulseReport> result = status == null
-                    ? reportRepository.findAllReports(pageable)
-                    : reportRepository.findAllReportsByStatus(status, pageable);
-            return result.map(PulseReportService::toReportResponse);
-        }
-        // scoped admin bez przypisanych obszarów → pusty wynik bez query
-        if (scopeValues.isEmpty()) {
+            idPage = status == null
+                    ? reportRepository.findAllReportIds(pageable)
+                    : reportRepository.findReportIdsByStatus(status, pageable);
+        } else if (scopeValues.isEmpty()) {
             return Page.empty(pageable);
+        } else {
+            idPage = status == null
+                    ? reportRepository.findReportIdsInScope(scopeColumn, scopeValues, pageable)
+                    : reportRepository.findReportIdsInScopeByStatus(status, scopeColumn, scopeValues, pageable);
         }
-        Page<PulseReport> result = status == null
-                ? reportRepository.findInScope(scopeColumn, scopeValues, pageable)
-                : reportRepository.findInScopeByStatus(status, scopeColumn, scopeValues, pageable);
-        return result.map(PulseReportService::toReportResponse);
+
+        List<Long> ids = idPage.getContent();
+        if (ids.isEmpty()) {
+            return new PageImpl<>(Collections.emptyList(), pageable, idPage.getTotalElements());
+        }
+
+        // Krok 2: doładowanie wierszy natywnym SQL — JPQL JOIN FETCH rzuca S1009.
+        List<PulseReportResponse> content = loadReportResponses(ids);
+        return new PageImpl<>(content, pageable, idPage.getTotalElements());
     }
+
+    /**
+     * Ładuje raporty pulsów + e-maile użytkowników przez JdbcTemplate.
+     * Zachowuje kolejność wg {@code ids} (paginowane ORDER BY createdAt DESC).
+     */
+    private List<PulseReportResponse> loadReportResponses(List<Long> ids) {
+        String placeholders = ids.stream().map(id -> "?").collect(Collectors.joining(","));
+        String reportsSql =
+                "SELECT pr.id AS report_id, pr.reason, pr.description, pr.status, pr.admin_note, " +
+                "       pr.reviewed_at, pr.created_at, pr.reviewed_by_id, pr.reporter_id, " +
+                "       p.id AS pulse_id, p.title AS pulse_title, p.city AS pulse_city, p.district AS pulse_district " +
+                "FROM pulse_reports pr " +
+                "JOIN pulses p ON p.id = pr.pulse_id " +
+                "WHERE pr.id IN (" + placeholders + ")";
+
+        List<ReportRow> rows = jdbcTemplate.query(
+                reportsSql,
+                ids.toArray(),
+                (rs, rowNum) -> new ReportRow(
+                        rs.getLong("report_id"),
+                        rs.getString("reason"),
+                        rs.getString("description"),
+                        rs.getString("status"),
+                        rs.getString("admin_note"),
+                        rs.getTimestamp("reviewed_at"),
+                        rs.getTimestamp("created_at"),
+                        (Long) rs.getObject("reviewed_by_id"),
+                        rs.getLong("reporter_id"),
+                        rs.getLong("pulse_id"),
+                        rs.getString("pulse_title"),
+                        rs.getString("pulse_city"),
+                        rs.getString("pulse_district")
+                )
+        );
+
+        Set<Long> userIds = new HashSet<>();
+        for (ReportRow r : rows) {
+            userIds.add(r.reporterId());
+            if (r.reviewedById() != null) userIds.add(r.reviewedById());
+        }
+        Map<Long, String> emailById = userIds.isEmpty()
+                ? Map.of()
+                : jdbcTemplate.query(
+                        "SELECT id, email FROM users WHERE id IN ("
+                                + userIds.stream().map(id -> "?").collect(Collectors.joining(",")) + ")",
+                        userIds.toArray(),
+                        rs -> {
+                            Map<Long, String> m = new HashMap<>();
+                            while (rs.next()) m.put(rs.getLong("id"), rs.getString("email"));
+                            return m;
+                        });
+
+        Map<Long, PulseReportResponse> byId = new HashMap<>();
+        for (ReportRow r : rows) {
+            byId.put(r.reportId(), new PulseReportResponse(
+                    String.valueOf(r.reportId()),
+                    String.valueOf(r.pulseId()),
+                    r.pulseTitle(),
+                    r.pulseCity(),
+                    r.pulseDistrict(),
+                    r.reporterId(),
+                    emailById.get(r.reporterId()),
+                    r.reason(),
+                    r.description(),
+                    r.status(),
+                    r.adminNote(),
+                    r.reviewedById(),
+                    r.reviewedById() != null ? emailById.get(r.reviewedById()) : null,
+                    r.reviewedAt() != null ? r.reviewedAt().toLocalDateTime().toString() : null,
+                    r.createdAt() != null ? r.createdAt().toLocalDateTime().toString() : null
+            ));
+        }
+
+        return ids.stream().map(byId::get).filter(Objects::nonNull).toList();
+    }
+
+    private record ReportRow(
+            Long reportId,
+            String reason,
+            String description,
+            String status,
+            String adminNote,
+            java.sql.Timestamp reviewedAt,
+            java.sql.Timestamp createdAt,
+            Long reviewedById,
+            Long reporterId,
+            Long pulseId,
+            String pulseTitle,
+            String pulseCity,
+            String pulseDistrict
+    ) {}
 
     /**
      * Rozpatruje zgłoszenie.
@@ -110,7 +219,9 @@ public class PulseReportService {
                     "Notatka administratora jest za długa (maks. " + MAX_ADMIN_NOTE + " znaków)");
         }
 
-        PulseReport report = reportRepository.findByIdWithPulse(reportId)
+        // findById + lazy load pulse — JPQL JOIN FETCH PulseReport+Pulse+User rzuca S1009.
+        // Lazy single-table SELECT-y są bezpieczne, brak TOCTOU bo scope sprawdzany na encji w tej samej tx.
+        PulseReport report = reportRepository.findById(reportId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Raport nie znaleziony"));
 
         requirePulseInScope(report.getPulse(), scopeColumn, scopeValues);
