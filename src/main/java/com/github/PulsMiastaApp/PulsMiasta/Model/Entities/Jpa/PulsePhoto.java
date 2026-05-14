@@ -16,7 +16,7 @@ import java.time.LocalDateTime;
 @Table(name = "pulse_photos", indexes = {
         @Index(name = "idx_pulse_photo_pulse", columnList = "pulse_id"),
         @Index(name = "idx_pulse_photo_user", columnList = "user_id"),
-        @Index(name = "idx_pulse_photo_object_key", columnList = "object_key", unique = true)
+        @Index(name = "idx_pulse_photo_object_key", columnList = "object_key")
 })
 @Getter
 @Setter
