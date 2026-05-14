@@ -443,8 +443,11 @@ public class PulseCommentService {
                     "Notatka administratora jest za długa (maks. " + MAX_ADMIN_NOTE + " znaków)");
         }
 
-        // JOIN FETCH comment + pulse w jednym zapytaniu → brak TOCTOU
-        CommentReport report = reportRepository.findByIdWithCommentAndPulse(reportId)
+        // findById + lazy load comment/pulse zamiast JOIN FETCH — JOIN FETCH na cr+c+p
+        // na Hibernate 7 / Connector-J 9 / MySQL 9 rzuca SQLState S1009 (zob. komentarze
+        // w CommentReportRepository). Lazy single-table SELECT-y są bezpieczne.
+        // Brak TOCTOU: scope sprawdzamy na encji załadowanej w tej samej tx.
+        CommentReport report = reportRepository.findById(reportId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Raport nie znaleziony"));
 
         // Scope check na załadowanej encji — bez dodatkowego query

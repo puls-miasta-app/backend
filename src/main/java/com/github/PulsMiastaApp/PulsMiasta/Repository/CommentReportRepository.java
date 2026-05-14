@@ -9,24 +9,22 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.util.Collection;
-import java.util.List;
-import java.util.Optional;
 
 public interface CommentReportRepository extends JpaRepository<CommentReport, Long> {
 
     boolean existsByCommentIdAndReporterId(Long commentId, Long reporterId);
 
     /*
-     * Listing zgłoszeń jest realizowany w dwóch krokach (zob. PulseCommentService.listReports):
-     *   1) paginowane query po samym ID + count,
-     *   2) doładowanie pełnych encji przez findByIdsWithFetch (bez LIMIT).
+     * Listing zgłoszeń: paginacja po samym ID (te metody niżej), a doładowanie wierszy
+     * z komentarzem i pulsem odbywa się natywnym SQL przez JdbcTemplate w
+     * PulseCommentService.loadReportResponses.
      *
-     * Dlaczego nie JOIN FETCH + Pageable w jednym query:
-     * kombinacja JOIN FETCH na 4 ścieżki (comment → pulse, comment → user, report → reporter)
-     * + LIMIT-as-parameter na Hibernate 7 / Connector-J 9 / MySQL 9 powoduje, że serwer
-     * odpowiada OK-packetem zamiast ResultSet, a sterownik rzuca SQLState S1009
+     * Dlaczego nie JOIN FETCH cr+c+p przez JPQL: na stosie Hibernate 7 / Spring Boot 4 /
+     * Connector-J 9 / MySQL 9 dowolna kombinacja JOIN FETCH wielu encji z kolumnami TEXT
+     * (description, body, ai_note, admin_note, original_body) — niezależnie od WHERE
+     * (id=?, id IN(?), status=? LIMIT ?) — kończy się SQLState S1009
      * "Statement.executeQuery() cannot issue statements that do not produce result sets".
-     * Rozdzielenie eliminuje problem deterministycznie.
+     * Natywny SELECT przez JdbcTemplate omija query-builder Hibernate i działa.
      */
 
     @Query(value = "SELECT r.id FROM CommentReport r ORDER BY r.createdAt DESC",
@@ -93,42 +91,10 @@ public interface CommentReportRepository extends JpaRepository<CommentReport, Lo
             @Param("scopeValues") Collection<String> scopeValues,
             Pageable pageable);
 
-    /**
-     * Ładuje encje raportów po ID z fetchem komentarza i pulsu, ale BEZ users.
-     *
-     * Dlaczego users nie są fetched: User ma kolumnę BINARY(16) `webauthn_user_handle`.
-     * Wciągnięcie jej do masowego JOIN FETCH na stosie Hibernate 7 / Connector-J 9 / MySQL 9
-     * powoduje desynchronizację protokołu i SQLState S1009 ("Statement.executeQuery()
-     * cannot issue statements that do not produce result sets"). Trigger nie jest LIMIT,
-     * tylko kolumna BINARY w wynikowym secie z 4 joinami.
-     *
-     * Reporter / commentAuthor / reviewer są wczytywane lazy z poziomu toReportResponse —
-     * pojedyncze SELECT-y po PK są małe i nie hitują buga. Dla admin paginacji 20–50 rekordów
-     * narzut N+1 jest akceptowalny.
-     */
-    @Query("""
-            SELECT r FROM CommentReport r
-            JOIN FETCH r.comment c
-            JOIN FETCH c.pulse
-            WHERE r.id IN :ids
-            """)
-    List<CommentReport> findByIdsWithFetch(@Param("ids") Collection<Long> ids);
 
     /**
      * Ładuje raport razem z komentarzem i pulsem (JOIN FETCH).
      * Używane w reviewReport — umożliwia sprawdzenie scope na załadowanej encji
      * bez osobnego query (eliminuje TOCTOU existsByIdInScope + findById).
      */
-    /**
-     * Reporter / comment author ładują się lazy (zob. javadoc findByIdsWithFetch wyżej —
-     * ten sam bug Connector-J/MySQL na users.webauthn_user_handle BINARY w JOIN FETCH).
-     * Wywołujące metody są w @Transactional, więc lazy init działa.
-     */
-    @Query("""
-            SELECT r FROM CommentReport r
-            JOIN FETCH r.comment c
-            JOIN FETCH c.pulse
-            WHERE r.id = :id
-            """)
-    Optional<CommentReport> findByIdWithCommentAndPulse(@Param("id") Long id);
 }
