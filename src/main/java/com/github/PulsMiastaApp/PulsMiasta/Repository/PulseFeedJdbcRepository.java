@@ -169,6 +169,40 @@ public class PulseFeedJdbcRepository {
                 status, pulseId);
     }
 
+    /**
+     * Hard-delete pulsu razem ze wszystkimi powiązanymi wierszami. Native SQL,
+     * by ominąć S1009 (Hibernate 7 + MySQL Connector/J). Kolejność uwzględnia FK.
+     * Zwraca listę object_key zdjęć — wywołujący kasuje obiekty po commicie.
+     */
+    public List<String> hardDeletePulse(Long pulseId) {
+        List<String> photoKeys = jdbcTemplate.queryForList(
+                "SELECT object_key FROM pulse_photos WHERE pulse_id = ?",
+                String.class, pulseId);
+
+        jdbcTemplate.update(
+                "DELETE FROM comment_likes WHERE comment_id IN (SELECT id FROM pulse_comments WHERE pulse_id = ?)",
+                pulseId);
+        jdbcTemplate.update(
+                "DELETE FROM comment_reports WHERE comment_id IN (SELECT id FROM pulse_comments WHERE pulse_id = ?)",
+                pulseId);
+        jdbcTemplate.update("DELETE FROM pulse_comments WHERE pulse_id = ?", pulseId);
+        jdbcTemplate.update("DELETE FROM pulse_votes WHERE pulse_id = ?", pulseId);
+        jdbcTemplate.update("DELETE FROM pulse_reports WHERE pulse_id = ?", pulseId);
+        jdbcTemplate.update(
+                "DELETE FROM chat_messages WHERE thread_id IN (SELECT id FROM chat_threads WHERE pulse_id = ?)",
+                pulseId);
+        jdbcTemplate.update("DELETE FROM chat_threads WHERE pulse_id = ?", pulseId);
+        jdbcTemplate.update("DELETE FROM pulse_photos WHERE pulse_id = ?", pulseId);
+        // Wyczyść ewentualne referencje merged_into_pulse_id wskazujące na ten puls,
+        // żeby nie zostawić wiszących wskaźników po duplikatach.
+        jdbcTemplate.update(
+                "UPDATE pulses SET merged_into_pulse_id = NULL WHERE merged_into_pulse_id = ?",
+                pulseId);
+        jdbcTemplate.update("DELETE FROM pulses WHERE id = ?", pulseId);
+
+        return photoKeys;
+    }
+
     public void updateLocation(Long pulseId, String district, String street, String city, String address,
                                String gmina, String powiat, String wojewodztwo,
                                Long gminaId, Long powiatId, Long wojewodztwoId) {

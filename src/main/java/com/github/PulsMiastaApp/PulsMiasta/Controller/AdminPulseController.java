@@ -20,6 +20,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -134,6 +135,18 @@ public class AdminPulseController {
         Pulse pulse = pulseService.reviewPulse(id, body.category(), body.priority(),
                 body.title(), body.description());
         return ResponseEntity.ok(SuccessResponse.of(PulseMapper.toResponse(pulse)));
+    }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<SuccessResponse<Map<String, Object>>> deletePulse(
+            @PathVariable("id") Long id,
+            @AuthenticationPrincipal AuthPrincipal principal
+    ) {
+        requireAdmin(principal);
+        Pulse existing = pulseService.getAny(id);
+        requirePulseInScope(existing, principal);
+        pulseService.deletePulse(id);
+        return ResponseEntity.ok(SuccessResponse.of(Map.of("id", id, "deleted", true)));
     }
 
     @GetMapping("/{id}/chat/threads")

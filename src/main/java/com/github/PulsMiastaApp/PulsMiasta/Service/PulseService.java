@@ -527,6 +527,16 @@ public class PulseService {
         return pulse;
     }
 
+    /** Hard-delete: usuwa puls wraz ze wszystkimi powiązanymi wierszami i obiektami w storage. */
+    @Transactional
+    public void deletePulse(Long pulseId) {
+        // Walidacja istnienia + odczyt do scope-check robi caller (kontroler).
+        List<String> photoKeys = pulseFeedJdbcRepository.hardDeletePulse(pulseId);
+        for (String key : photoKeys) {
+            registerAfterCommit(() -> photoStorageService.deleteObject(key));
+        }
+    }
+
     // ---------- HELPERS ----------
 
     private static String defaultTitleFor(PulseCategory category) {
