@@ -71,7 +71,7 @@ public class PulseFeedJdbcRepository {
             where.append(" AND (p.category NOT IN (").append(adminOnlyList).append(")");
             where.append(" OR p.user_id = ?)");
             params.add(userId);
-            where.append(" AND (p.status NOT IN ('PENDING_REVIEW', 'REJECTED') OR p.user_id = ?)");
+            where.append(" AND (p.status NOT IN ('PENDING_REVIEW', 'REJECTED', 'RESOLVED') OR p.user_id = ?)");
             params.add(userId);
         }
 
@@ -452,7 +452,7 @@ public class PulseFeedJdbcRepository {
         params.add(neLng);
 
         if (!isAdmin) {
-            sql.append("   AND (p.status NOT IN ('PENDING_REVIEW', 'REJECTED') OR p.user_id = ?)");
+            sql.append("   AND (p.status NOT IN ('PENDING_REVIEW', 'REJECTED', 'RESOLVED') OR p.user_id = ?)");
             params.add(userId);
         }
         if (category != null) {
