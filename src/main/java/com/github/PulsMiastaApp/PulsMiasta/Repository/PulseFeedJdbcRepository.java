@@ -68,7 +68,8 @@ public class PulseFeedJdbcRepository {
                     .filter(PulseCategory::isAdminOnly)
                     .map(Enum::name)
                     .collect(java.util.stream.Collectors.joining("','", "'", "'"));
-            where.append(" AND p.category NOT IN (").append(adminOnlyList).append(")");
+            where.append(" AND (p.category NOT IN (").append(adminOnlyList).append(") OR p.user_id = ?)");
+            params.add(userId);
             where.append(" AND (p.status NOT IN ('PENDING_REVIEW', 'REJECTED', 'RESOLVED') OR p.user_id = ?)");
             params.add(userId);
         }
@@ -488,16 +489,18 @@ public class PulseFeedJdbcRepository {
                     .filter(PulseCategory::isAdminOnly)
                     .map(Enum::name)
                     .collect(java.util.stream.Collectors.joining("','", "'", "'"));
-            sql.append("   AND p.category NOT IN (").append(adminOnlyList).append(")");
             if (userId != null) {
+                sql.append("   AND (p.category NOT IN (").append(adminOnlyList).append(") OR p.user_id = ?)");
+                params.add(userId);
                 sql.append("   AND (p.status NOT IN ('PENDING_REVIEW', 'REJECTED', 'RESOLVED') OR p.user_id = ?)");
                 params.add(userId);
             } else {
+                sql.append("   AND p.category NOT IN (").append(adminOnlyList).append(")");
                 sql.append("   AND p.status NOT IN ('PENDING_REVIEW', 'REJECTED', 'RESOLVED')");
             }
         }
         if (category != null) {
-            if (!isAdmin && category.isAdminOnly()) {
+            if (!isAdmin && category.isAdminOnly() && userId == null) {
                 return java.util.Collections.emptyList();
             }
             sql.append("   AND p.category = ?");
