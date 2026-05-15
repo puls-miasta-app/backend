@@ -68,8 +68,11 @@ public class PulseFeedJdbcRepository {
                     .filter(PulseCategory::isAdminOnly)
                     .map(Enum::name)
                     .collect(java.util.stream.Collectors.joining("','", "'", "'"));
-            where.append(" AND (p.category NOT IN (").append(adminOnlyList).append(") OR p.user_id = ?)");
-            params.add(userId);
+            // Admin-only categories (e.g. INCYDENTY) are strictly hidden from non-admins,
+            // including from their own submissions: the mobile feed schema's category enum
+            // does not accept "Incydenty", so leaking such a pulse via an owner exception
+            // would fail Zod validation and blank the whole feed.
+            where.append(" AND p.category NOT IN (").append(adminOnlyList).append(")");
             where.append(" AND (p.status NOT IN ('PENDING_REVIEW', 'REJECTED', 'RESOLVED') OR p.user_id = ?)");
             params.add(userId);
         }
